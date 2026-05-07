@@ -3,7 +3,6 @@
 .env.local
 .env.*.local
 .env.*.production.local
-.env.example
 
 # Service account keys and credentials
 serviceAccountKey.json
