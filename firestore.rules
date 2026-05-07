@@ -1,0 +1,198 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isDoctorRole() {
+      return request.auth.token.role == 'doctor';
+    }
+
+    function isPatientRole() {
+      return request.auth.token.role == 'patient';
+    }
+
+    function isDocumentOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isOwnDoctor(doctorId) {
+      return request.auth.uid == doctorId && isDoctorRole();
+    }
+
+    function isOwnPatient(patientId) {
+      return request.auth.uid == patientId && isPatientRole();
+    }
+
+    // Users collection - only own record readable
+    match /users/{userId} {
+      allow read: if isAuthenticated() && isDocumentOwner(userId);
+      allow write: if isAuthenticated() && isDocumentOwner(userId);
+      allow create: if true; // Firebase Auth creates during signup
+      allow delete: if false; // Never allow deletion via Firestore
+    }
+
+    // Doctors collection
+    match /doctors/{doctorId} {
+      // Anyone can read public doctor info (for discovery)
+      allow read: if isAuthenticated();
+      
+      // Only the doctor can write their own profile
+      allow write: if isAuthenticated() && isDoctorRole() && isDocumentOwner(doctorId);
+      
+      // Don't allow creation or deletion via Firestore (handled by auth service)
+      allow create, delete: if false;
+    }
+
+    // Patients collection
+    match /patients/{patientId} {
+      // Patient can read own record
+      allow read: if isAuthenticated() && isOwnPatient(patientId);
+      
+      // Doctor can read patients they're treating
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        resource.data.assignedDoctorId == request.auth.uid;
+      
+      // Patient can update own basic info
+      allow update: if isAuthenticated() && isOwnPatient(patientId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['assignedDoctorId', 'medicalHistory']));
+      
+      // Only backend creates patients
+      allow create, delete: if false;
+    }
+
+    // Therapy Types - public read
+    match /therapyTypes/{therapyId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only backend manages
+    }
+
+    // Treatment Plans
+    match /treatmentPlans/{planId} {
+      // Patient can read own plans
+      allow read: if isAuthenticated() && isOwnPatient(resource.data.patientId);
+      
+      // Assigned doctor can read
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        resource.data.doctorId == request.auth.uid;
+      
+      // Only doctor can write/create plans for their patients
+      allow create, write: if isAuthenticated() && isDoctorRole() &&
+        request.resource.data.doctorId == request.auth.uid;
+      
+      allow delete: if false;
+    }
+
+    // Sessions (appointments)
+    match /sessions/{sessionId} {
+      // Patient can read their sessions
+      allow read: if isAuthenticated() && isOwnPatient(resource.data.patientId);
+      
+      // Doctor can read their sessions
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        resource.data.doctorId == request.auth.uid;
+      
+      // Doctor can create/update sessions
+      allow create, update: if isAuthenticated() && isDoctorRole() &&
+        request.resource.data.doctorId == request.auth.uid;
+      
+      // Allow patient to cancel their owns sessions (soft delete)
+      allow update: if isAuthenticated() && isOwnPatient(resource.data.patientId) &&
+        (request.resource.data.status == 'cancelled');
+      
+      allow delete: if false;
+    }
+
+    // Appointments (booking requests)
+    match /appointments/{appointmentId} {
+      // Patient can read appointments they created
+      allow read: if isAuthenticated() && isOwnPatient(resource.data.patient_id);
+      
+      // Doctor can read appointments assigned to them
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        resource.data.doctor_id == request.auth.uid;
+      
+      // Patient can create appointment requests
+      allow create: if isAuthenticated() && isOwnPatient(request.resource.data.patient_id);
+      
+      // Doctor can accept/reject (via update)
+      allow update: if isAuthenticated() && isDoctorRole() &&
+        resource.data.doctor_id == request.auth.uid;
+      
+      allow delete: if false;
+    }
+
+    // Feedback
+    match /feedback/{feedbackId} {
+      // Patient can create feedback for their sessions
+      allow create: if isAuthenticated() && isOwnPatient(request.resource.data.patientId);
+      
+      // Patient can read own feedback
+      allow read: if isAuthenticated() && isOwnPatient(resource.data.patientId);
+      
+      // Doctor can read feedback on their sessions
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        get(/databases/$(database)/documents/sessions/$(resource.data.sessionId)).data.doctorId == request.auth.uid;
+      
+      allow update, delete: if false;
+    }
+
+    // Milestones
+    match /milestones/{milestoneId} {
+      // Patient can read own milestones
+      allow read: if isAuthenticated() && isOwnPatient(resource.data.patientId);
+      
+      // Doctor can read milestones for their patients
+      allow read: if isAuthenticated() && isDoctorRole() &&
+        get(/databases/$(database)/documents/patients/$(resource.data.patientId)).data.assignedDoctorId == request.auth.uid;
+      
+      // Doctor creates milestones
+      allow create: if isAuthenticated() && isDoctorRole();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      // User can only read their own notifications
+      allow read: if isAuthenticated() && isDocumentOwner(resource.data.userId);
+      
+      // Users can mark their notifications as read (soft update)
+      allow update: if isAuthenticated() && isDocumentOwner(resource.data.userId) &&
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'readAt']));
+      
+      allow create, delete: if false; // Only backend creates
+    }
+
+    // Availability
+    match /availability/{doctorId} {
+      // Patient can read doctor availability
+      allow read: if isAuthenticated() && isPatientRole();
+      
+      // Doctor can read/write own availability
+      allow read, write: if isAuthenticated() && isDoctorRole() && isDocumentOwner(doctorId);
+      
+      allow delete: if false;
+    }
+
+    // Avatar Availability Templates
+    match /availabilityTemplates/{docId} {
+      allow read, write: if isAuthenticated() && isDoctorRole() && isDocumentOwner(docId);
+      allow delete: if false;
+    }
+
+    // Audit Logs - immutable, backend only
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && isDoctorRole(); // Doctors can read logs
+      allow create, update, delete: if false; // Only backend writes
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

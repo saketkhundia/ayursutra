@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # Frontend React app
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: ayursutra-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=http://localhost:3001/api
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ayursutra-network
+    restart: unless-stopped
+
+  # Backend Express API
+  backend:
+    build:
+      context: server
+      dockerfile: Dockerfile
+    container_name: ayursutra-backend
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      # Firebase credentials - load from .env or pass via docker
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      # JWT secrets
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      # ML Service
+      ML_SERVICE_URL: http://ml-service:5000
+      # CORS
+      ALLOWED_ORIGINS: http://localhost:3000,http://frontend:3000
+      # Rate limiting
+      RATE_LIMIT_MAX_REQUESTS: 100
+      RATE_LIMIT_WINDOW: 15
+      # Logging
+      LOG_LEVEL: info
+    volumes:
+      - ./server/logs:/app/logs
+    depends_on:
+      - ml-service
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ayursutra-network
+    restart: unless-stopped
+
+  # ML Service Flask app
+  ml-service:
+    build:
+      context: ml-service
+      dockerfile: Dockerfile
+    container_name: ayursutra-ml-service
+    ports:
+      - "5000:5000"
+    environment:
+      FLASK_ENV: production
+      FLASK_APP: app.py
+    volumes:
+      - ./ml-service/models:/app/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ayursutra-network
+    restart: unless-stopped
+
+networks:
+  ayursutra-network:
+    driver: bridge
+
+volumes:
+  backend-logs:
+    driver: local
+  ml-models:
+    driver: local
