@@ -16,6 +16,16 @@ app = Flask(__name__)
 CORS(app)
 
 
+@app.route('/', methods=['GET', 'HEAD'])
+def root():
+    return jsonify({'status': 'ok', 'service': 'AyurSutra ML Service', 'version': '1.0.0'})
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok', 'service': 'AyurSutra ML Service', 'version': '1.0.0'})
+
+
 @app.route('/api/ai/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'service': 'ATASS ML Engine', 'version': '1.0.0'})
