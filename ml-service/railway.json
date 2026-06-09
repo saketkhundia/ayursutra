@@ -1,0 +1,10 @@
+{
+  "name": "AyurSutra ML Service",
+  "description": "AI-powered recommendation and scheduling engine for Panchakarma treatments",
+  "builder": "dockerfile",
+  "port": 5000,
+  "startCommand": "python -m flask run --host=0.0.0.0 --port=5000",
+  "healthcheckPath": "/health",
+  "healthcheckInterval": 30,
+  "healthcheckTimeout": 3
+}
