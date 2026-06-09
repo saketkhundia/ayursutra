@@ -109,6 +109,16 @@ initializeDatabase();
 // Initialize WebSocket for real-time
 const io = initializeRealtime(httpServer);
 
+// Root API endpoint
+app.get('/api', (_req, res) => {
+  res.json({
+    message: 'AyurSutra API',
+    version: '2.0.0',
+    health: '/api/health',
+    docs: 'See /api/health for status',
+  });
+});
+
 // Health check endpoint (not rate limited)
 app.get('/api/health', (_req, res) => {
   res.json({
