@@ -48,10 +48,13 @@ export function initializeDatabase(): void {
     console.log('[Firestore] Initialized with service account file');
   } else {
     const config = getConfig();
+    const privateKey = (config.FIREBASE_PRIVATE_KEY || '')
+      .replace(/^["']|["']$/g, '')
+      .replace(/\\n/g, '\n');
     initializeApp({
       credential: cert({
         projectId: config.FIREBASE_PROJECT_ID,
-        privateKey: config.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        privateKey,
         clientEmail: config.FIREBASE_CLIENT_EMAIL,
       }),
     });
