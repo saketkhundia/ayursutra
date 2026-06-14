@@ -81,6 +81,11 @@ router.get('/check', async (req: Request, res: Response) => {
   const dateStr = date as string;
   const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay(); // avoid timezone issues
 
+  // If checking today, only show future time slots
+  const today = new Date().toISOString().split('T')[0];
+  const isToday = dateStr === today;
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
   // Get availability for this day
   const availSnap = await collections.practitionerAvailability()
     .where('practitioner_id', '==', practitioner_id)
@@ -113,6 +118,12 @@ router.get('/check', async (req: Request, res: Response) => {
     while (cursor < avail.end_time) {
       const slotEnd = addMin(cursor, 30);
       if (slotEnd > avail.end_time) break;
+      // Skip past slots on today's date
+      if (isToday) {
+        const [h, m] = cursor.split(':').map(Number);
+        const slotMinutes = h * 60 + m;
+        if (slotMinutes <= nowMinutes) { cursor = addMin(cursor, 30); continue; }
+      }
       // Check not booked
       const isBooked = bookedSlots.some(b => cursor < addMin(b.start, b.duration) && slotEnd > b.start);
       if (!isBooked) freeSlots.push(cursor);
