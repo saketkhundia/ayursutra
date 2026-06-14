@@ -7,33 +7,50 @@ const router = Router();
 
 // Get notifications for a patient
 router.get('/', async (req: Request, res: Response) => {
-  const { patient_id, unread_only, role } = req.query;
-  let query: FirebaseFirestore.Query = collections.notifications();
+  try {
+    const { patient_id, unread_only, role } = req.query;
+    let query: FirebaseFirestore.Query = collections.notifications();
 
-  if (role === 'doctor' && !patient_id) {
-    query = query.where('patient_id', '==', '');
-  } else if (patient_id) {
-    query = query.where('patient_id', '==', patient_id as string);
+    if (role === 'doctor' && !patient_id) {
+      query = query.where('patient_id', '==', '');
+    } else if (patient_id) {
+      query = query.where('patient_id', '==', patient_id as string);
+    }
+
+    const snap = await query.get();
+    let notifications = queryToArray(snap);
+
+    if (unread_only === 'true') {
+      notifications = notifications.filter((n: any) => n.is_read === 0);
+    }
+
+    notifications.sort((a: any, b: any) => (b.created_at || '').localeCompare(a.created_at || ''));
+    res.json(notifications);
+  } catch (error: any) {
+    console.error('[Notifications] Error fetching notifications:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
-  if (unread_only === 'true') query = query.where('is_read', '==', 0);
-
-  const snap = await query.get();
-  const notifications = queryToArray(snap).sort((a: any, b: any) => b.created_at.localeCompare(a.created_at));
-  res.json(notifications);
 });
 
 // Get unread count
 router.get('/unread-count', async (req: Request, res: Response) => {
-  const { patient_id, role } = req.query;
-  let query: FirebaseFirestore.Query = collections.notifications()
-    .where('is_read', '==', 0);
-  if (role === 'doctor' && !patient_id) {
-    query = query.where('patient_id', '==', '');
-  } else if (patient_id) {
-    query = query.where('patient_id', '==', patient_id as string);
+  try {
+    const { patient_id, role } = req.query;
+    let query: FirebaseFirestore.Query = collections.notifications();
+
+    if (role === 'doctor' && !patient_id) {
+      query = query.where('patient_id', '==', '');
+    } else if (patient_id) {
+      query = query.where('patient_id', '==', patient_id as string);
+    }
+
+    const snap = await query.get();
+    const count = snap.docs.filter(d => d.data().is_read !== 1).length;
+    res.json({ count });
+  } catch (error: any) {
+    console.error('[Notifications] Error fetching unread count:', error);
+    res.json({ count: 0 });
   }
-  const snap = await query.get();
-  res.json({ count: snap.size });
 });
 
 // Mark notification as read
@@ -56,32 +73,42 @@ router.patch('/:id/read', async (req: Request<{id: string}>, res: Response) => {
 
 // Mark all as read — optionally filtered by patient
 router.patch('/read-all', async (req: Request, res: Response) => {
-  const { patient_id, role } = req.body;
+  try {
+    const { patient_id, role } = req.body;
 
-  let query: FirebaseFirestore.Query = collections.notifications()
-    .where('is_read', '==', 0);
+    let query: FirebaseFirestore.Query = collections.notifications();
 
-  if (role === 'doctor' && !patient_id) {
-    query = query.where('patient_id', '==', '');
-  } else if (patient_id) {
-    query = query.where('patient_id', '==', patient_id);
-  }
-
-  const snap = await query.get();
-
-  const batch = db.batch();
-  snap.docs.forEach(doc => batch.update(doc.ref, { is_read: 1 }));
-  await batch.commit();
-
-  const io = getIO();
-  if (io) {
-    io.to('dashboard').emit('notification');
-    if (patient_id) {
-      io.to(`patient:${patient_id}`).emit('notification');
+    if (role === 'doctor' && !patient_id) {
+      query = query.where('patient_id', '==', '');
+    } else if (patient_id) {
+      query = query.where('patient_id', '==', patient_id as string);
+    } else {
+      return res.status(400).json({ error: 'patient_id or role=doctor is required' });
     }
-  }
 
-  res.json({ message: 'All notifications marked as read', count: snap.size });
+    const snap = await query.get();
+
+    const batch = db.batch();
+    snap.docs.forEach(doc => {
+      if (doc.data().is_read !== 1) {
+        batch.update(doc.ref, { is_read: 1 });
+      }
+    });
+    await batch.commit();
+
+    const io = getIO();
+    if (io) {
+      io.to('dashboard').emit('notification');
+      if (patient_id) {
+        io.to(`patient:${patient_id}`).emit('notification');
+      }
+    }
+
+    res.json({ message: 'All notifications marked as read', count: snap.size });
+  } catch (error: any) {
+    console.error('[Notifications] Error marking all as read:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
 });
 
 // Create custom notification
@@ -132,31 +159,36 @@ router.put('/preferences/:patient_id', async (req: Request, res: Response) => {
 
 // Clear all notifications (with role/patient_id filter)
 router.delete('/', async (req: Request, res: Response) => {
-  const { patient_id, role } = req.query;
-  let query: FirebaseFirestore.Query = collections.notifications();
+  try {
+    const { patient_id, role } = req.query;
+    let query: FirebaseFirestore.Query = collections.notifications();
 
-  if (role === 'doctor' && !patient_id) {
-    query = query.where('patient_id', '==', '');
-  } else if (patient_id) {
-    query = query.where('patient_id', '==', patient_id as string);
-  } else {
-    return res.status(400).json({ error: 'patient_id or role=doctor is required to clear notifications' });
-  }
-
-  const snap = await query.get();
-  const batch = db.batch();
-  snap.docs.forEach(doc => batch.delete(doc.ref));
-  await batch.commit();
-
-  const io = getIO();
-  if (io) {
-    io.to('dashboard').emit('notification');
-    if (patient_id) {
-      io.to(`patient:${patient_id}`).emit('notification');
+    if (role === 'doctor' && !patient_id) {
+      query = query.where('patient_id', '==', '');
+    } else if (patient_id) {
+      query = query.where('patient_id', '==', patient_id as string);
+    } else {
+      return res.status(400).json({ error: 'patient_id or role=doctor is required to clear notifications' });
     }
-  }
 
-  res.json({ message: 'Notifications cleared', count: snap.size });
+    const snap = await query.get();
+    const batch = db.batch();
+    snap.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    const io = getIO();
+    if (io) {
+      io.to('dashboard').emit('notification');
+      if (patient_id) {
+        io.to(`patient:${patient_id}`).emit('notification');
+      }
+    }
+
+    res.json({ message: 'Notifications cleared', count: snap.size });
+  } catch (error: any) {
+    console.error('[Notifications] Error clearing notifications:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
 });
 
 export default router;
