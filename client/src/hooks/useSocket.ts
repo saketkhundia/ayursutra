@@ -1,11 +1,13 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
+const WS_URL = import.meta.env.VITE_WS_URL || import.meta.env.VITE_API_URL || window.location.origin;
+
 let socket: Socket | null = null;
 
 function getSocket(): Socket {
   if (!socket) {
-    socket = io(window.location.origin, {
+    socket = io(WS_URL, {
       path: '/ws',
       transports: ['websocket', 'polling'],
       autoConnect: true,
