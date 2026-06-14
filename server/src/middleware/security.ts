@@ -14,7 +14,7 @@ export function securityHeaders() {
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'https:'],
-        connectSrc: ["'self'", 'http://localhost:5173', 'http://localhost:5000'],
+        connectSrc: ["'self'", 'http://localhost:5173', 'http://localhost:5000', 'https://ayursu.vercel.app'],
         fontSrc: ["'self'"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],
