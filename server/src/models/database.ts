@@ -1,23 +1,11 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import { getConfig } from '../config';
 import path from 'path';
 import fs from 'fs';
 
-// Initialize Firebase Admin SDK
-const serviceAccountPath = path.join(__dirname, '..', '..', 'serviceAccountKey.json');
+let db!: Firestore;
 
-if (getApps().length === 0) {
-  if (fs.existsSync(serviceAccountPath)) {
-    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-    initializeApp({ credential: cert(serviceAccount) });
-  } else {
-    initializeApp();
-  }
-}
-
-const db: Firestore = getFirestore();
-
-// Collections reference helpers
 export const collections = {
   practitioners: () => db.collection('practitioners'),
   patients: () => db.collection('patients'),
@@ -36,20 +24,41 @@ export const collections = {
   appointments: () => db.collection('appointments'),
 };
 
-// Helper to convert Firestore doc to plain object with id
 export function docToObj(doc: FirebaseFirestore.DocumentSnapshot): any {
   if (!doc.exists) return null;
   return { id: doc.id, ...doc.data() };
 }
 
-// Helper to convert query snapshot to array
 export function queryToArray(snapshot: FirebaseFirestore.QuerySnapshot): any[] {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-// No-op init (Firestore doesn't need table creation)
 export function initializeDatabase(): void {
-  console.log('[Firestore] Connected to Firebase');
+  const serviceAccountPath = path.join(__dirname, '..', '..', 'serviceAccountKey.json');
+
+  if (getApps().length > 0) {
+    console.log('[Firestore] Already initialized');
+    db = getFirestore();
+    return;
+  }
+
+  if (fs.existsSync(serviceAccountPath)) {
+    const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+    initializeApp({ credential: cert(serviceAccount) });
+    console.log('[Firestore] Initialized with service account file');
+  } else {
+    const config = getConfig();
+    initializeApp({
+      credential: cert({
+        projectId: config.FIREBASE_PROJECT_ID,
+        privateKey: config.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientEmail: config.FIREBASE_CLIENT_EMAIL,
+      }),
+    });
+    console.log('[Firestore] Initialized with environment config');
+  }
+
+  db = getFirestore();
 }
 
 export default db;
