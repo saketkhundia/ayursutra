@@ -185,17 +185,17 @@ export default function DoctorAppointments() {
     <div className="min-h-screen bg-stone-50">
       {/* Header */}
       <div className="bg-gradient-to-r from-saffron-500 to-saffron-600 text-white py-6 px-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Appointment Requests</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-2">Appointment Requests</h1>
             <p className="text-saffron-100">Manage and respond to patient appointment requests</p>
           </div>
           {!confirmClear ? (
-            <button onClick={() => setConfirmClear(true)} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors text-sm font-medium">
+            <button onClick={() => setConfirmClear(true)} className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors text-sm font-medium self-start sm:self-auto">
               <Trash2 className="w-4 h-4" /> Clear History
             </button>
           ) : (
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center self-start sm:self-auto">
               <button onClick={handleClearHistory} className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors text-xs font-medium">
                 Confirm Clear
               </button>

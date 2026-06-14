@@ -226,7 +226,7 @@ export default function DoctorAuth() {
                     placeholder="doctor@example.com"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Type</label>
                     <select
@@ -250,7 +250,7 @@ export default function DoctorAuth() {
                     </select>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">License No.</label>
                     <input

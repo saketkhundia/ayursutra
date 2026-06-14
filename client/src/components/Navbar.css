@@ -175,6 +175,19 @@
   }
 }
 
+/* ---------- OVERLAY ---------- */
+.navbar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 998;
+}
+
+.navbar-overlay.open {
+  display: block;
+}
+
 .navbar-mobile-dropdown {
   display: none;
   position: fixed;

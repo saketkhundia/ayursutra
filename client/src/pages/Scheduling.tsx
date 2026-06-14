@@ -285,7 +285,7 @@ export default function Scheduling() {
           <h1 className="text-2xl font-bold text-stone-900">Therapy Scheduling</h1>
           <p className="text-stone-500 mt-1">Schedule and manage therapy sessions</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {!confirmClear ? (
             <button onClick={() => setConfirmClear(true)} className="inline-flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg hover:bg-red-100 transition-colors font-medium text-sm border border-red-200">
               <Trash2 className="w-4 h-4" /> Clear History
@@ -575,7 +575,7 @@ export default function Scheduling() {
                   {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Start Time *</label>
                   <input required type="time" value={availForm.start_time} onChange={e => setAvailForm({ ...availForm, start_time: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
@@ -624,7 +624,7 @@ export default function Scheduling() {
                   {therapyTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.category}) - {t.duration_minutes} min</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Date *</label>
                   <input required type="date" value={form.scheduled_date} onChange={e => {
@@ -695,7 +695,7 @@ export default function Scheduling() {
                   {therapyTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.category})</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Start Date *</label>
                   <input required type="date" value={autoForm.start_date} onChange={e => setAutoForm({ ...autoForm, start_date: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
@@ -705,7 +705,7 @@ export default function Scheduling() {
                   <input required type="time" value={autoForm.preferred_time} onChange={e => setAutoForm({ ...autoForm, preferred_time: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Number of Sessions *</label>
                   <input required type="number" min="1" max="30" value={autoForm.num_sessions} onChange={e => setAutoForm({ ...autoForm, num_sessions: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />

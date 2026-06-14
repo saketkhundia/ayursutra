@@ -181,7 +181,7 @@ export default function PatientAuth() {
                     placeholder="you@example.com"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Age</label>
                     <input

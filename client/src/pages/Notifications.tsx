@@ -80,26 +80,36 @@ export default function Notifications() {
   };
 
   const handleMarkAllRead = async () => {
-    const params: Record<string, string> = {};
-    const role = userAuth.getRole();
-    if (role) params.role = role;
-    const user = userAuth.getUser();
-    if (role === 'patient' && user?.id) params.patient_id = user.id;
-    if (selectedPatient) params.patient_id = selectedPatient;
-    await api.markAllRead(params);
-    loadNotifications();
+    try {
+      const params: Record<string, string> = {};
+      const role = userAuth.getRole();
+      if (role) params.role = role;
+      const user = userAuth.getUser();
+      if (role === 'patient' && user?.id) params.patient_id = user.id;
+      if (selectedPatient) params.patient_id = selectedPatient;
+      await api.markAllRead(params);
+      loadNotifications();
+    } catch (err: any) {
+      console.error('Failed to mark all as read:', err);
+      alert('Failed to mark notifications as read: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleClearAll = async () => {
-    const params: Record<string, string> = {};
-    const role = userAuth.getRole();
-    if (role) params.role = role;
-    const user = userAuth.getUser();
-    if (role === 'patient' && user?.id) params.patient_id = user.id;
-    if (selectedPatient) params.patient_id = selectedPatient;
-    await api.clearNotifications(params);
-    setConfirmClear(false);
-    loadNotifications();
+    try {
+      const params: Record<string, string> = {};
+      const role = userAuth.getRole();
+      if (role) params.role = role;
+      const user = userAuth.getUser();
+      if (role === 'patient' && user?.id) params.patient_id = user.id;
+      if (selectedPatient) params.patient_id = selectedPatient;
+      await api.clearNotifications(params);
+      setConfirmClear(false);
+      loadNotifications();
+    } catch (err: any) {
+      console.error('Failed to clear notifications:', err);
+      alert('Failed to clear notifications: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleSavePrefs = async () => {
@@ -119,7 +129,7 @@ export default function Notifications() {
           <h1 className="text-2xl font-bold text-[#1C1C1C]">Notifications</h1>
           <p className="text-[#7A7570] mt-1">Alerts and session reminders</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {unreadCount > 0 && (
             <button onClick={handleMarkAllRead} className="inline-flex items-center gap-2 bg-[#EDF4EF] text-[#4E9A6F] px-4 py-2.5 rounded-lg hover:bg-[#EDF4EF]/80 transition-colors font-medium text-sm border border-[#C5DDD0]">
               <CheckCheck className="w-4 h-4" /> Mark All Read
