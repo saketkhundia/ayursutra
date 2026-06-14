@@ -43,7 +43,8 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
         <div className="navbar-inner">
           {/* Logo */}
           <NavLink to="/dashboard" className="navbar-logo" aria-label="AyurSutra home">
-            Ayur<span className="accent">Sutra</span>
+            <img src="/favicon.png" alt="" className="navbar-logo-img" />
+            <span className="logo-text">Ayur<span className="accent">Sutra</span></span>
           </NavLink>
 
           {/* Desktop nav links */}

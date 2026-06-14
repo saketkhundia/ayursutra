@@ -25,6 +25,9 @@
 
 /* ---------- LOGO ---------- */
 .navbar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: 'DM Sans', sans-serif;
   font-weight: 700;
   font-size: 20px;
@@ -36,6 +39,13 @@
 
 .navbar-logo .accent {
   color: #4E9A6F;
+}
+
+.navbar-logo-img {
+  height: 32px;
+  width: auto;
+  display: block;
+  border-radius: 6px;
 }
 
 /* ---------- NAV LINKS ---------- */

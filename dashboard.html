@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <title>AyurSutra — Practitioner Dashboard</title>
   
   <!-- Import DM Sans from Google Fonts -->
@@ -40,6 +41,9 @@
     }
 
     .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-size: 20px;
       font-weight: 700;
       color: #1C1C1C;
@@ -47,8 +51,15 @@
       margin-right: 40px;
     }
 
-    .nav-logo span {
-      color: #4E9A6F; /* Primary Accent */
+    .nav-logo .accent {
+      color: #4E9A6F;
+    }
+
+    .nav-logo-img {
+      height: 32px;
+      width: auto;
+      display: block;
+      border-radius: 6px;
     }
 
     .nav-links {
@@ -252,7 +263,7 @@
 
   <!-- NAVBAR -->
   <nav class="nav">
-    <a href="#" class="nav-logo">Ayur<span>Sutra</span></a>
+    <a href="#" class="nav-logo"><img src="favicon.png" alt="" class="nav-logo-img" /><span class="logo-text">Ayur<span class="accent">Sutra</span></span></a>
     
     <ul class="nav-links">
       <li><a href="#" class="active">Dashboard</a></li>
