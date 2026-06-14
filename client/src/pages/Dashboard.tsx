@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Users, Calendar, Activity, Star,
-  Clock, Brain, ArrowUpRight
+  Star, Brain, ArrowUpRight
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -43,7 +42,6 @@ export default function Dashboard() {
 
   const loadAll = () => {
     setLoading(true);
-    const doctorId = user?.id;
     Promise.all([
       api.getStats().catch(() => null),
       api.getUpcomingSessions().catch(() => []),

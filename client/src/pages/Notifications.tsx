@@ -30,13 +30,6 @@ const channelIcons: Record<string, any> = {
   push: Smartphone,
 };
 
-const channelColors: Record<string, string> = {
-  'in-app': 'text-[#4E9A6F] bg-[#EDF4EF]',
-  sms: 'text-[#4E9A6F] bg-[#EDF4EF]',
-  email: 'text-[#4E9A6F] bg-[#EDF4EF]',
-  push: 'text-[#4E9A6F] bg-[#EDF4EF]',
-};
-
 export default function Notifications() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
