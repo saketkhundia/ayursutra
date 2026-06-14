@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Send, MessageCircle, MessageSquare, AlertCircle } from 'lucide-react';
 import { api, userAuth } from '../api';
@@ -53,7 +53,7 @@ const getFriendlyMessageError = (err: unknown, fallback: string) => {
 
 export default function Messaging() {
   const currentUser = userAuth.getUser();
-  const { socket, on } = useSocket();
+  const { socket, on, connected } = useSocket();
   const [searchParams] = useSearchParams();
   const doctorIdFromUrl = searchParams.get('doctor');
 
@@ -73,6 +73,13 @@ export default function Messaging() {
     loadConversations();
     loadUnreadCount();
   }, []);
+
+  // Refresh conversations on socket (re)connect to catch missed messages
+  useEffect(() => {
+    if (!connected) return;
+    loadConversations();
+    loadUnreadCount();
+  }, [connected]);
 
   // Auto-select doctor conversation if doctor ID is in URL
   useEffect(() => {
@@ -110,6 +117,33 @@ export default function Messaging() {
     }
   }, [doctorIdFromUrl, conversations, loading]);
 
+  // Append or update a single conversation in the list (sorted by last_message_at desc)
+  const upsertConversation = useCallback((incoming: Partial<Conversation> & { id: string; other_user: Conversation['other_user'] }) => {
+    setConversations(prev => {
+      const idx = prev.findIndex(c => c.id === incoming.id);
+      const now = incoming.last_message_at || new Date().toISOString();
+      let updated: Conversation[];
+      if (idx !== -1) {
+        updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          last_message: incoming.last_message ?? updated[idx].last_message,
+          last_message_sender: incoming.last_message_sender ?? updated[idx].last_message_sender,
+          last_message_at: now,
+        };
+      } else {
+        updated = [...prev, {
+          id: incoming.id,
+          other_user: incoming.other_user,
+          last_message: incoming.last_message || '',
+          last_message_sender: incoming.last_message_sender || '',
+          last_message_at: now,
+        }];
+      }
+      return updated.sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+    });
+  }, []);
+
   // Join user room for real-time messages
   useEffect(() => {
     if (socket && currentUser?.id) {
@@ -118,36 +152,29 @@ export default function Messaging() {
       // Listen for new messages
       const unsubscribeNew = on('message:new', (message: Message) => {
         console.log('[Socket] Received new message:', message);
-        
-        // Update conversations list
-        setConversations(prev =>
-          prev.map(conv =>
-            conv.id === message.conversation_id
-              ? {
-                  ...conv,
-                  last_message: message.content,
-                  last_message_sender: message.sender_id,
-                  last_message_at: message.created_at,
-                }
-              : conv
-          )
-        );
 
-        // Add to current conversation if it matches
+        const otherId = message.sender_id === currentUser?.id ? message.receiver_id : message.sender_id;
+
+        // Upsert conversation in sidebar
+        upsertConversation({
+          id: message.conversation_id,
+          other_user: { id: otherId, name: message.sender_name, type: 'doctor' },
+          last_message: message.content,
+          last_message_sender: message.sender_id,
+          last_message_at: message.created_at,
+        });
+
+        // Add message to currently-viewed conversation
         setSelectedConversation(prev => {
           if (!prev) return prev;
-          
-          // Check if message belongs to current conversation (both real and temp)
-          const isCurrentConversation = 
-            prev.id === message.conversation_id || 
-            (prev.other_user.id === message.receiver_id && message.sender_id === currentUser?.id) || 
-            (prev.other_user.id === message.sender_id && message.receiver_id === currentUser?.id);
-          
-          if (isCurrentConversation) {
+
+          const isCurrent =
+            prev.id === message.conversation_id ||
+            prev.other_user.id === otherId;
+
+          if (isCurrent) {
             setMessages(prevMsgs => {
-              if (prevMsgs.some(m => m.id === message.id)) {
-                return prevMsgs;
-              }
+              // Replace temp message from this sender if found
               if (message.sender_id === currentUser?.id) {
                 const tempIdx = prevMsgs.findIndex(
                   m => m.id.startsWith('temp-') && m.content === message.content && m.receiver_id === message.receiver_id
@@ -158,19 +185,22 @@ export default function Messaging() {
                   return updated;
                 }
               }
+              // Deduplicate
+              if (prevMsgs.some(m => m.id === message.id)) {
+                return prevMsgs;
+              }
               return [...prevMsgs, message];
             });
-            
+
+            // Upgrade temp conversation ID to real one
             if (prev.id.startsWith('temp-')) {
-              return {
-                ...prev,
-                id: message.conversation_id,
-              };
+              return { ...prev, id: message.conversation_id };
             }
           }
           return prev;
         });
 
+        // Update unread count for received messages
         if (message.receiver_id === currentUser?.id) {
           setUnreadCount(prev => Math.max(0, prev + 1));
         }
@@ -189,7 +219,7 @@ export default function Messaging() {
         unsubscribeRead();
       };
     }
-  }, [socket, currentUser?.id, on]);
+  }, [socket, currentUser?.id, on, upsertConversation]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -266,10 +296,28 @@ export default function Messaging() {
     setMessageInput('');
 
     try {
-      await api.sendMessage(
+      const sentMessage = await api.sendMessage(
         selectedConversation.other_user.id,
         messageContent
       );
+      // Replace temp message with the real one from the API response immediately
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === tempMessage.id);
+        if (idx !== -1) {
+          const updated = [...prev];
+          updated[idx] = sentMessage;
+          return updated;
+        }
+        return prev;
+      });
+      // Update conversation sidebar
+      upsertConversation({
+        id: sentMessage.conversation_id,
+        other_user: selectedConversation.other_user,
+        last_message: messageContent,
+        last_message_sender: currentUser?.id || '',
+        last_message_at: sentMessage.created_at,
+      });
     } catch (err: any) {
       console.error('[Messaging] Failed to send message:', err);
       setError(err.message || 'Failed to send message');
