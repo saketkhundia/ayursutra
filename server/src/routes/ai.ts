@@ -4,7 +4,7 @@
  * Handles: Smart scheduling, therapy recommendations, treatment insights.
  */
 import { Router, Request, Response } from 'express';
-import db, { collections, docToObj, queryToArray } from '../models/database';
+import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
 import { notifyPatient } from '../services/notification-service';
 import { emitSessionCreated, emitDashboardRefresh } from '../services/realtime';

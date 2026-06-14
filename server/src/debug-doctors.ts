@@ -1,5 +1,5 @@
 import { initializeDatabase } from './models/database';
-import db, { collections } from './models/database';
+import { collections } from './models/database';
 
 async function debug() {
   initializeDatabase();

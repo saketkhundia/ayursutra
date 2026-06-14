@@ -1,5 +1,5 @@
 import { initializeDatabase } from './models/database';
-import db, { collections } from './models/database';
+import { getDb, collections, batch } from './models/database';
 
 async function cleanup() {
   initializeDatabase();
@@ -23,11 +23,11 @@ async function cleanup() {
 
   for (const name of collectionNames) {
     try {
-      const snap = await db.collection(name).get();
+      const snap = await getDb().collection(name).get();
       if (!snap.empty) {
-        const batch = db.batch();
-        snap.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
+        const fbBatch = batch();
+        snap.docs.forEach(doc => fbBatch.delete(doc.ref));
+        await fbBatch.commit();
         console.log(`✅ Deleted ${snap.docs.length} documents from '${name}'`);
       } else {
         console.log(`⏭️  Collection '${name}' is already empty`);

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import db, { collections, docToObj, queryToArray } from '../models/database';
+import { collections, docToObj, queryToArray, batch } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitSessionUpdate, emitSessionCreated, emitDashboardRefresh, emitTherapyProgressRefresh, emitDoctorAppointmentRequest, emitTreatmentPlanCreated } from '../services/realtime';
@@ -665,12 +665,12 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
       const mlResult = await mlResponse.json() as any;
       
       // Batch write the sequenced sessions
-      const batch = db.batch();
+      const fbBatch = batch();
       (mlResult.suggested_sessions || []).forEach((mlSession: any) => {
         const newSessionId = uuidv4();
         const newSessionRef = collections.therapySessions().doc(newSessionId);
         
-        batch.set(newSessionRef, {
+        fbBatch.set(newSessionRef, {
           treatment_plan_id: treatmentPlanId,
           therapy_type_id: mlSession.therapy_name, // Use as reference
           patient_id: session.patient_id,
@@ -686,7 +686,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
           updated_at: now,
         });
       });
-      await batch.commit();
+      await fbBatch.commit();
 
       // PHASE 5: Notify patient of approved appointment and treatment plan
       const practitioner = docToObj(await collections.practitioners().doc(session.practitioner_id).get());
@@ -797,9 +797,9 @@ router.delete('/clear', async (req: Request, res: Response) => {
     if (patient_id) query = query.where('patient_id', '==', patient_id as string);
 
     const snap = await query.get();
-    const batch = db.batch();
-    snap.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    const fbBatch = batch();
+    snap.docs.forEach(doc => fbBatch.delete(doc.ref));
+    await fbBatch.commit();
 
     emitDashboardRefresh();
     res.json({ message: 'Session history cleared', count: snap.size });

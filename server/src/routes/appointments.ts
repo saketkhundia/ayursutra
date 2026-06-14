@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import db, { collections, docToObj, queryToArray } from '../models/database';
+import { collections, docToObj, queryToArray, batch } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitTreatmentPlanCreated } from '../services/realtime';
@@ -598,9 +598,9 @@ router.delete('/clear', async (req: Request, res: Response) => {
     if (doctor_id) query = query.where('doctor_id', '==', doctor_id as string);
 
     const snap = await query.get();
-    const batch = db.batch();
-    snap.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    const fbBatch = batch();
+    snap.docs.forEach(doc => fbBatch.delete(doc.ref));
+    await fbBatch.commit();
 
     res.json({ message: 'Appointment history cleared', count: snap.size });
   } catch (error: any) {

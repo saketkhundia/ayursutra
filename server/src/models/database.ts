@@ -64,4 +64,15 @@ export function initializeDatabase(): void {
   db = getFirestore();
 }
 
-export default db;
+/** Get the Firestore instance (safe to call after initializeDatabase) */
+export function getDb(): FirebaseFirestore.Firestore {
+  if (!db) {
+    throw new Error('Firestore not initialized. Call initializeDatabase() first.');
+  }
+  return db;
+}
+
+/** Create a Firestore write batch */
+export function batch() {
+  return getDb().batch();
+}

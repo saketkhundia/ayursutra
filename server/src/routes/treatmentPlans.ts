@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import db, { collections, docToObj, queryToArray } from '../models/database';
+import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitTherapyProgressRefresh } from '../services/realtime';

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import db, { collections, docToObj, queryToArray } from '../models/database';
+import { collections, docToObj, queryToArray, batch } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
 import { getIO } from '../services/realtime';
 
@@ -88,13 +88,13 @@ router.patch('/read-all', async (req: Request, res: Response) => {
 
     const snap = await query.get();
 
-    const batch = db.batch();
+    const fbBatch = batch();
     snap.docs.forEach(doc => {
       if (doc.data().is_read !== 1) {
-        batch.update(doc.ref, { is_read: 1 });
+        fbBatch.update(doc.ref, { is_read: 1 });
       }
     });
-    await batch.commit();
+    await fbBatch.commit();
 
     const io = getIO();
     if (io) {
@@ -172,9 +172,9 @@ router.delete('/', async (req: Request, res: Response) => {
     }
 
     const snap = await query.get();
-    const batch = db.batch();
-    snap.docs.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
+    const fbBatch = batch();
+    snap.docs.forEach(doc => fbBatch.delete(doc.ref));
+    await fbBatch.commit();
 
     const io = getIO();
     if (io) {

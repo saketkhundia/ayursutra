@@ -1,5 +1,5 @@
 import { initializeDatabase } from './models/database';
-import db, { collections } from './models/database';
+import { getDb, collections, batch } from './models/database';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 
@@ -14,11 +14,11 @@ async function seed() {
   ];
 
   for (const name of collectionNames) {
-    const snap = await db.collection(name).get();
+    const snap = await getDb().collection(name).get();
     if (!snap.empty) {
-      const batch = db.batch();
-      snap.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
+      const fbBatch = batch();
+      snap.docs.forEach(doc => fbBatch.delete(doc.ref));
+      await fbBatch.commit();
     }
   }
 

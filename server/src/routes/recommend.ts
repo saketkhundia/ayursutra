@@ -3,7 +3,7 @@
  * Based on patient profile, appointment history, and current needs
  */
 import { Router, Request, Response } from 'express';
-import db, { collections, queryToArray } from '../models/database';
+import { collections, queryToArray } from '../models/database';
 
 const router = Router();
 
