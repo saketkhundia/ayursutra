@@ -77,6 +77,7 @@ export default function Notifications() {
   const handleMarkRead = async (id: string) => {
     await api.markRead(id);
     loadNotifications();
+    window.dispatchEvent(new Event('notifications:updated'));
   };
 
   const handleMarkAllRead = async () => {
@@ -89,6 +90,7 @@ export default function Notifications() {
       if (selectedPatient) params.patient_id = selectedPatient;
       await api.markAllRead(params);
       loadNotifications();
+      window.dispatchEvent(new Event('notifications:updated'));
     } catch (err: any) {
       console.error('Failed to mark all as read:', err);
       alert('Failed to mark notifications as read: ' + (err.message || 'Unknown error'));
@@ -106,6 +108,7 @@ export default function Notifications() {
       await api.clearNotifications(params);
       setConfirmClear(false);
       loadNotifications();
+      window.dispatchEvent(new Event('notifications:updated'));
     } catch (err: any) {
       console.error('Failed to clear notifications:', err);
       alert('Failed to clear notifications: ' + (err.message || 'Unknown error'));

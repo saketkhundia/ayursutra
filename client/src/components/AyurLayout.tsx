@@ -80,7 +80,8 @@ export default function AyurLayout() {
     refresh();
     const interval = setInterval(refresh, 30000);
     const unsub = on('notification', refresh);
-    return () => { clearInterval(interval); unsub(); };
+    window.addEventListener('notifications:updated', refresh);
+    return () => { clearInterval(interval); unsub(); window.removeEventListener('notifications:updated', refresh); };
   }, [role]);
 
   useEffect(() => {
