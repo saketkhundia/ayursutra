@@ -1,9 +1,10 @@
 // MUST BE FIRST - Initialize configuration before anything else
 import './init';
 
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
+import { installAsyncErrorHandling } from './middleware/asyncErrors';
 
 // Now we can safely use config
 import { getConfig } from './config';
@@ -17,32 +18,14 @@ const logger = getLogger(__filename);
 
 // Security and middleware imports
 import { securityHeaders, httpsRedirect, trustProxy } from './middleware/security';
-import { getApiLimiter, getAuthLimiter, getAiLimiter } from './middleware/rateLimiter';
+import { getApiLimiter, getAiLimiter } from './middleware/rateLimiter';
 import correlationIdMiddleware from './middleware/correlationId';
-import { errorHandler, asyncHandler } from './middleware/errorHandler';
+import { errorHandler } from './middleware/errorHandler';
 
 import { initializeDatabase } from './models/database';
 import { initializeRealtime } from './services/realtime';
 
-// Patch Express Router to auto-catch async errors
-const originalUse = express.Router().route;
-function wrapAsync(fn: Function) {
-  return (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
-}
-const methods = ['get', 'post', 'put', 'delete', 'patch'] as const;
-// Patch route prototype methods to auto-wrap async handlers
-const routerProto = Object.getPrototypeOf(express.Router());
-for (const method of methods) {
-  const orig = routerProto[method];
-  routerProto[method] = function (this: any, path: any, ...handlers: any[]) {
-    const wrapped = handlers.map((h: any) =>
-      typeof h === 'function' && h.constructor.name === 'AsyncFunction' ? wrapAsync(h) : h
-    );
-    return orig.call(this, path, ...wrapped);
-  };
-}
+installAsyncErrorHandling();
 
 import { getChannelStatus } from './services/notification-service';
 import patientRoutes from './routes/patients';
@@ -144,17 +127,18 @@ app.get('/api/channels', (_req, res) => {
   res.json(getChannelStatus());
 });
 
-// Routes with rate limiting where applicable
+// Routes. The broad API limiter is installed globally above; avoid applying
+// the same limiter again per route or each request is counted twice.
 app.use('/api/auth', authRoutes);
-app.use('/api/patients', apiLimiterInstance, patientRoutes);
-app.use('/api/practitioners', apiLimiterInstance, practitionerRoutes);
-app.use('/api/therapy-types', apiLimiterInstance, therapyTypeRoutes);
-app.use('/api/treatment-plans', apiLimiterInstance, treatmentPlanRoutes);
-app.use('/api/sessions', apiLimiterInstance, sessionRoutes);
-app.use('/api/notifications', apiLimiterInstance, notificationRoutes);
-app.use('/api/feedback', apiLimiterInstance, feedbackRoutes);
-app.use('/api/dashboard', apiLimiterInstance, dashboardRoutes);
-app.use('/api/milestones', apiLimiterInstance, milestoneRoutes);
+app.use('/api/patients', patientRoutes);
+app.use('/api/practitioners', practitionerRoutes);
+app.use('/api/therapy-types', therapyTypeRoutes);
+app.use('/api/treatment-plans', treatmentPlanRoutes);
+app.use('/api/sessions', sessionRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/milestones', milestoneRoutes);
 
 // Middleware to disable caching for AI endpoints (must run before route handlers)
 app.use('/api/ai', (req, res, next) => {
@@ -166,11 +150,11 @@ app.use('/api/ai', (req, res, next) => {
 });
 
 app.use('/api/ai', aiLimiterInstance, aiRoutes); // Stricter rate limit for ML endpoints
-app.use('/api/availability', apiLimiterInstance, availabilityRoutes);
-app.use('/api/patient-portal', apiLimiterInstance, patientPortalRoutes);
-app.use('/api/messages', apiLimiterInstance, messagesRoutes);
-app.use('/api/appointments', apiLimiterInstance, appointmentsRoutes);
-app.use('/api/recommend', apiLimiterInstance, recommendRoutes);
+app.use('/api/availability', availabilityRoutes);
+app.use('/api/patient-portal', patientPortalRoutes);
+app.use('/api/messages', messagesRoutes);
+app.use('/api/appointments', appointmentsRoutes);
+app.use('/api/recommend', recommendRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -227,7 +211,12 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('[FATAL] Unhandled rejection', { reason });
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error('[FATAL] Unhandled rejection', {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+  });
   process.exit(1);
 });
 

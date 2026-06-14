@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/Layout';
+import AyurLayout from './components/AyurLayout';
 import Dashboard from './pages/Dashboard';
 import Patients from './pages/Patients';
 import PatientDetail from './pages/PatientDetail';
@@ -22,10 +22,11 @@ import './index.css';
 // Smart root: redirect unauthenticated → /login, doctor → /dashboard, patient → /find-doctors
 function SmartRoot() {
   if (!userAuth.isLoggedIn()) return <Navigate to="/login" replace />;
-  return <Navigate to={userAuth.getRole() === 'patient' ? '/find-doctors' : '/dashboard'} replace />;
+  const role = userAuth.getRole();
+  return <Navigate to={role === 'patient' ? '/find-doctors' : '/dashboard'} replace />;
 }
 
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
@@ -37,8 +38,8 @@ function App() {
         <Route path="/login/doctor" element={<DoctorAuth />} />
         <Route path="/login/patient" element={<PatientAuth />} />
 
-        {/* Protected app routes — Layout handles auth guard */}
-        <Route element={<Layout />}>
+        {/* Protected app routes — AyurLayout handles auth guard */}
+        <Route element={<AyurLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/patients" element={<Patients />} />
           <Route path="/patients/:id" element={<PatientDetail />} />
@@ -60,5 +61,3 @@ function App() {
     </BrowserRouter>
   );
 }
-
-export default App;

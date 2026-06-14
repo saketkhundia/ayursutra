@@ -1,41 +1,47 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
-  --color-saffron-50: #fff8ed;
-  --color-saffron-100: #ffefd4;
-  --color-saffron-200: #ffdba8;
-  --color-saffron-300: #ffc170;
-  --color-saffron-400: #ff9d37;
-  --color-saffron-500: #ff8010;
-  --color-saffron-600: #f06406;
-  --color-saffron-700: #c74a07;
-  --color-saffron-800: #9e3b0e;
-  --color-saffron-900: #7f330f;
-  --color-saffron-950: #451705;
+  --font-heading: 'DM Sans', sans-serif;
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
 
-  --color-herb-50: #f0fdf0;
-  --color-herb-100: #dbfcdb;
-  --color-herb-200: #b9f7bb;
-  --color-herb-300: #83ef88;
-  --color-herb-400: #46de4e;
-  --color-herb-500: #1ec428;
-  --color-herb-600: #13a31c;
-  --color-herb-700: #137f1a;
-  --color-herb-800: #15641b;
-  --color-herb-900: #135319;
-  --color-herb-950: #042e09;
+  --color-primary: #4E9A6F;
+  --color-accent: #4E9A6F;
+  --color-surface: #FFFFFF;
+  --color-border: #E8E3DA;
 
-  --color-earth-50: #faf6f1;
-  --color-earth-100: #f0e6d6;
-  --color-earth-200: #e0cbaa;
-  --color-earth-300: #ceab79;
-  --color-earth-400: #c09255;
-  --color-earth-500: #b47d43;
-  --color-earth-600: #9c6438;
-  --color-earth-700: #814d30;
-  --color-earth-800: #6b402c;
-  --color-earth-900: #5a3628;
-  --color-earth-950: #321b14;
+  --color-saffron-50: #FFF7ED;
+  --color-saffron-100: #FFEDD5;
+  --color-saffron-200: #FED7AA;
+  --color-saffron-300: #FDBA74;
+  --color-saffron-400: #FB923C;
+  --color-saffron-500: #F97316;
+  --color-saffron-600: #EA580C;
+  --color-saffron-700: #C2410C;
+
+  --color-herb-50: #EDF4EF;
+  --color-herb-100: #E2EDE6;
+  --color-herb-200: #C5DBCC;
+  --color-herb-300: #A3C9B1;
+  --color-herb-400: #6AAD82;
+  --color-herb-500: #4E9A6F;
+  --color-herb-600: #3D7D59;
+  --color-herb-700: #2C5E40;
+  --color-herb-800: #1E402B;
+}
+
+:root {
+  --bg-primary: #F7F5F0;
+  --bg-secondary: #FFFFFF;
+  --bg-surface: #FFFFFF;
+  --bg-header: #FFFFFF;
+  --text-primary: #1C1C1C;
+  --text-secondary: #5A5550;
+  --text-muted: #7A7570;
+  --text-nav: #5A5550;
+  --border-color: #E8E3DA;
+  --card-shadow: none;
 }
 
 html {
@@ -49,13 +55,19 @@ html {
 }
 
 body {
-  @apply bg-stone-50 text-stone-800 antialiased;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
 }
 
 ::selection {
-  background-color: var(--color-saffron-200);
-  color: var(--color-earth-950);
+  background-color: #EDF4EF;
+  color: #4E9A6F;
 }
 
 @keyframes slideUp {
@@ -67,4 +79,29 @@ body {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shrink {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

@@ -28,6 +28,29 @@ interface Conversation {
   last_message_at: string;
 }
 
+const normalizeConversation = (conversation: Conversation): Conversation | null => {
+  if (!conversation?.id || !conversation.other_user?.id || !conversation.other_user?.name) {
+    return null;
+  }
+
+  return {
+    ...conversation,
+    last_message: conversation.last_message || '',
+    last_message_sender: conversation.last_message_sender || '',
+    last_message_at: conversation.last_message_at || new Date().toISOString(),
+  };
+};
+
+const getFriendlyMessageError = (err: unknown, fallback: string) => {
+  const message = err instanceof Error ? err.message : fallback;
+
+  if (/bad gateway|failed to fetch|networkerror|load failed/i.test(message)) {
+    return 'Messages are temporarily unavailable. Please try again.';
+  }
+
+  return message;
+};
+
 export default function Messaging() {
   const currentUser = userAuth.getUser();
   const { socket, on } = useSocket();
@@ -60,7 +83,7 @@ export default function Messaging() {
       if (doctorConversation) {
         handleSelectConversation(doctorConversation);
       }
-    } else if (doctorIdFromUrl && conversations.length === 0) {
+    } else if (doctorIdFromUrl && conversations.length === 0 && !loading) {
       // If doctor ID in URL but no conversations yet, fetch doctor details to show UI
       api.getPractitioner(doctorIdFromUrl)
         .then(doctor => {
@@ -85,7 +108,7 @@ export default function Messaging() {
           setError('Doctor not found');
         });
     }
-  }, [doctorIdFromUrl, conversations]);
+  }, [doctorIdFromUrl, conversations, loading]);
 
   // Join user room for real-time messages
   useEffect(() => {
@@ -116,18 +139,15 @@ export default function Messaging() {
           
           // Check if message belongs to current conversation (both real and temp)
           const isCurrentConversation = 
-            prev.id === message.conversation_id || // Real conversation ID match
-            (prev.other_user.id === message.receiver_id && message.sender_id === currentUser?.id) || // Sent from current user
-            (prev.other_user.id === message.sender_id && message.receiver_id === currentUser?.id); // Received from other user
+            prev.id === message.conversation_id || 
+            (prev.other_user.id === message.receiver_id && message.sender_id === currentUser?.id) || 
+            (prev.other_user.id === message.sender_id && message.receiver_id === currentUser?.id);
           
           if (isCurrentConversation) {
             setMessages(prevMsgs => {
-              // Avoid duplicates by real ID
               if (prevMsgs.some(m => m.id === message.id)) {
                 return prevMsgs;
               }
-              // If I'm the sender and there's a matching temp message,
-              // replace it with the real server message instead of adding a duplicate
               if (message.sender_id === currentUser?.id) {
                 const tempIdx = prevMsgs.findIndex(
                   m => m.id.startsWith('temp-') && m.content === message.content && m.receiver_id === message.receiver_id
@@ -141,7 +161,6 @@ export default function Messaging() {
               return [...prevMsgs, message];
             });
             
-            // If this was a temp conversation, update it with real conversation ID
             if (prev.id.startsWith('temp-')) {
               return {
                 ...prev,
@@ -152,13 +171,11 @@ export default function Messaging() {
           return prev;
         });
 
-        // Update unread count
         if (message.receiver_id === currentUser?.id) {
           setUnreadCount(prev => Math.max(0, prev + 1));
         }
       });
 
-      // Listen for read receipts
       const unsubscribeRead = on('message:read', (data: { message_id: string }) => {
         setMessages(prev =>
           prev.map(msg =>
@@ -172,9 +189,8 @@ export default function Messaging() {
         unsubscribeRead();
       };
     }
-  }, [socket, currentUser?.id, selectedConversation?.id, on]);
+  }, [socket, currentUser?.id, on]);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -183,17 +199,18 @@ export default function Messaging() {
     try {
       setLoading(true);
       setInitialError('');
-      console.log('[Messaging] Loading conversations...');
       const convs = await api.getConversations();
-      console.log('[Messaging] Conversations loaded:', convs);
-      setConversations(convs || []);
-      if (convs && convs.length > 0) {
-        setSelectedConversation(convs[0]);
-        await loadMessages(convs[0]);
+      const safeConversations = (convs || [])
+        .map(normalizeConversation)
+        .filter((conversation): conversation is Conversation => Boolean(conversation));
+      setConversations(safeConversations);
+      if (safeConversations.length > 0 && !doctorIdFromUrl) {
+        setSelectedConversation(safeConversations[0]);
+        await loadMessages(safeConversations[0]);
       }
     } catch (err: any) {
       console.error('[Messaging] Failed to load conversations:', err);
-      const errorMsg = err.message || 'Failed to load conversations';
+      const errorMsg = getFriendlyMessageError(err, 'Failed to load conversations');
       setInitialError(errorMsg);
       setError(errorMsg);
     } finally {
@@ -203,13 +220,12 @@ export default function Messaging() {
 
   const loadMessages = async (conversation: Conversation) => {
     try {
-      console.log('[Messaging] Loading messages for:', conversation.other_user.id);
       const response = await api.getConversation(conversation.other_user.id, 50, 0);
-      console.log('[Messaging] Messages loaded:', response);
       setMessages(response.messages || []);
     } catch (err: any) {
       console.error('[Messaging] Failed to load messages:', err);
-      setError(err.message || 'Failed to load messages');
+      setError(getFriendlyMessageError(err, 'Failed to load messages'));
+      setMessages([]);
     }
   };
 
@@ -219,7 +235,6 @@ export default function Messaging() {
       setUnreadCount(response.unread_count || 0);
     } catch (err) {
       console.error('[Messaging] Failed to load unread count:', err);
-      // Silently fail
     }
   };
 
@@ -237,7 +252,6 @@ export default function Messaging() {
     setSending(true);
     setError('');
 
-    // Optimistically add message to UI
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
       conversation_id: selectedConversation.id,
@@ -252,15 +266,13 @@ export default function Messaging() {
     setMessageInput('');
 
     try {
-      const response = await api.sendMessage(
+      await api.sendMessage(
         selectedConversation.other_user.id,
         messageContent
       );
-      console.log('[Messaging] Message sent:', response);
     } catch (err: any) {
       console.error('[Messaging] Failed to send message:', err);
       setError(err.message || 'Failed to send message');
-      // Remove the optimistic message on error
       setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
     } finally {
       setSending(false);
@@ -283,20 +295,18 @@ export default function Messaging() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-stone-800">Messages</h1>
-          <p className="text-stone-500 text-sm mt-1">Connect with your care team</p>
+          <h1 className="text-2xl font-bold text-[#1C1C1C]">Messages</h1>
+          <p className="text-[#7A7570] text-sm mt-1">Connect with your care team</p>
         </div>
         {unreadCount > 0 && (
-          <div className="bg-red-100 border border-red-200 rounded-lg px-3 py-2">
-            <p className="text-sm font-semibold text-red-700">{unreadCount} unread</p>
+          <div className="bg-[#EDF4EF] border border-[#C5DDD0] rounded-lg px-3 py-2">
+            <p className="text-sm font-semibold text-[#4E9A6F]">{unreadCount} unread</p>
           </div>
         )}
       </div>
 
-      {/* Initial Error Alert */}
       {initialError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
@@ -305,7 +315,7 @@ export default function Messaging() {
             <p className="text-red-700 text-sm mt-1">{initialError}</p>
             <button
               onClick={() => loadConversations()}
-              className="mt-2 text-sm text-red-700 hover:text-red-800 font-medium underline"
+              className="mt-2 text-sm text-[#4E9A6F] hover:text-[#4E9A6F]/80 font-medium underline"
             >
               Try again
             </button>
@@ -313,12 +323,10 @@ export default function Messaging() {
         </div>
       )}
 
-      {/* Main layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-        {/* Conversations list */}
-        <div className="lg:col-span-1 bg-white rounded-2xl border border-stone-200 overflow-hidden flex flex-col">
-          <div className="p-4 border-b border-stone-100">
-            <h2 className="font-semibold text-stone-800">Conversations</h2>
+        <div className="lg:col-span-1 bg-white rounded-2xl border border-[#E8E3DA] overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-[#E8E3DA]">
+            <h2 className="font-semibold text-[#1C1C1C]">Conversations</h2>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -326,38 +334,34 @@ export default function Messaging() {
               <div className="space-y-2 p-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <div key={i} className="p-3 animate-pulse">
-                    <div className="h-4 bg-stone-200 rounded w-3/4 mb-2" />
-                    <div className="h-3 bg-stone-200 rounded w-full" />
+                    <div className="h-4 bg-[#F7F5F0] rounded w-3/4 mb-2" />
+                    <div className="h-3 bg-[#F7F5F0] rounded w-full" />
                   </div>
                 ))}
               </div>
             ) : conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full p-4 text-center">
-                <MessageCircle className="w-8 h-8 text-stone-300 mb-3" />
-                <p className="text-sm text-stone-500">No conversations yet</p>
-                <p className="text-xs text-stone-400 mt-1">Start by scheduling a session</p>
+                <MessageCircle className="w-8 h-8 text-[#7A7570] mb-3" />
+                <p className="text-sm text-[#7A7570]">No conversations yet</p>
               </div>
             ) : (
               conversations.map(conversation => (
                 <button
                   key={conversation.id}
                   onClick={() => handleSelectConversation(conversation)}
-                  className={`w-full text-left p-3 border-b border-stone-100 hover:bg-stone-50 transition-colors ${
-                    selectedConversation?.id === conversation.id ? 'bg-saffron-50 border-l-4 border-l-saffron-500' : ''
+                  className={`w-full text-left p-3 border-b border-[#E8E3DA] hover:bg-[#F7F5F0] transition-colors ${
+                    selectedConversation?.other_user.id === conversation.other_user.id ? 'bg-[#EDF4EF] border-l-4 border-l-[#4E9A6F]' : ''
                   }`}
                 >
                   <div className="flex items-start gap-2">
-                    <div className="w-8 h-8 rounded-full bg-saffron-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-saffron-700">
+                    <div className="w-8 h-8 rounded-full bg-[#EDF4EF] flex items-center justify-center flex-shrink-0 text-xs font-bold text-[#4E9A6F]">
                       {getInitials(conversation.other_user.name)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-800 truncate">
+                      <p className="text-sm font-medium text-[#1C1C1C] truncate">
                         {conversation.other_user.name}
                       </p>
-                      {conversation.other_user.specialization && (
-                        <p className="text-xs text-stone-400">{conversation.other_user.specialization}</p>
-                      )}
-                      <p className="text-xs text-stone-500 truncate mt-1">{conversation.last_message}</p>
+                      <p className="text-xs text-[#7A7570] truncate mt-1">{conversation.last_message}</p>
                     </div>
                   </div>
                 </button>
@@ -366,22 +370,20 @@ export default function Messaging() {
           </div>
         </div>
 
-        {/* Chat area */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-stone-200 overflow-hidden flex flex-col">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E8E3DA] overflow-hidden flex flex-col">
           {selectedConversation ? (
             <>
-              {/* Header */}
-              <div className="p-4 border-b border-stone-100 bg-gradient-to-r from-saffron-50 to-stone-50">
+              <div className="p-4 border-b border-[#E8E3DA] bg-[#F7F5F0]">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-saffron-100 flex items-center justify-center text-sm font-bold text-saffron-700">
+                  <div className="w-10 h-10 rounded-full bg-[#EDF4EF] flex items-center justify-center text-sm font-bold text-[#4E9A6F]">
                     {getInitials(selectedConversation.other_user.name)}
                   </div>
                   <div>
-                    <p className="font-semibold text-stone-800">
+                    <p className="font-semibold text-[#1C1C1C]">
                       {selectedConversation.other_user.name}
                     </p>
                     {selectedConversation.other_user.specialization && (
-                      <p className="text-xs text-stone-500">
+                      <p className="text-xs text-[#7A7570]">
                         {selectedConversation.other_user.specialization}
                       </p>
                     )}
@@ -389,13 +391,11 @@ export default function Messaging() {
                 </div>
               </div>
 
-              {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {!messages || messages.length === 0 ? (
+                {messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full">
-                    <MessageSquare className="w-8 h-8 text-stone-300 mb-3" />
-                    <p className="text-sm text-stone-500">No messages yet</p>
-                    <p className="text-xs text-stone-400 mt-1">Start the conversation</p>
+                    <MessageSquare className="w-8 h-8 text-[#E8E3DA] mb-3" />
+                    <p className="text-sm text-[#7A7570]">No messages yet</p>
                   </div>
                 ) : (
                   messages.map(msg => (
@@ -406,16 +406,16 @@ export default function Messaging() {
                       <div
                         className={`max-w-xs px-4 py-2 rounded-lg ${
                           msg.sender_id === currentUser?.id
-                            ? 'bg-saffron-500 text-white rounded-br-none'
-                            : 'bg-stone-100 text-stone-800 rounded-bl-none'
+                            ? 'bg-[#4E9A6F] text-white rounded-br-none'
+                            : 'bg-[#F7F5F0] text-[#1C1C1C] rounded-bl-none border border-[#E8E3DA]'
                         }`}
                       >
                         <p className="text-sm break-words">{msg.content}</p>
                         <p
-                          className={`text-xs mt-1 ${
+                          className={`text-[10px] mt-1 ${
                             msg.sender_id === currentUser?.id
-                              ? 'text-saffron-100'
-                              : 'text-stone-500'
+                              ? 'text-white/80'
+                              : 'text-[#7A7570]'
                           }`}
                         >
                           {formatTime(msg.created_at)}
@@ -428,7 +428,6 @@ export default function Messaging() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Error message */}
               {error && (
                 <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
@@ -436,8 +435,7 @@ export default function Messaging() {
                 </div>
               )}
 
-              {/* Message input */}
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-stone-100 bg-stone-50">
+              <form onSubmit={handleSendMessage} className="p-4 border-t border-[#E8E3DA] bg-[#F7F5F0]">
                 <div className="flex gap-3">
                   <input
                     type="text"
@@ -445,24 +443,23 @@ export default function Messaging() {
                     value={messageInput}
                     onChange={e => setMessageInput(e.target.value)}
                     disabled={sending}
-                    className="flex-1 border border-stone-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent disabled:opacity-50"
+                    className="flex-1 border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] focus:border-transparent disabled:opacity-50 bg-white"
                   />
                   <button
                     type="submit"
                     disabled={sending || !messageInput.trim()}
-                    className="bg-saffron-500 hover:bg-saffron-600 text-white px-4 py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2"
+                    className="bg-[#4E9A6F] hover:bg-[#4E9A6F]/90 text-white px-5 py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2 font-medium"
                   >
                     <Send className="w-4 h-4" />
-                    {sending ? 'Sending…' : 'Send'}
+                    {sending ? '...' : 'Send'}
                   </button>
                 </div>
               </form>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full">
-              <MessageCircle className="w-12 h-12 text-stone-300 mb-4" />
-              <p className="text-stone-600 font-medium">Select a conversation</p>
-              <p className="text-stone-400 text-sm mt-1">Choose from your conversations to start messaging</p>
+              <MessageCircle className="w-12 h-12 text-[#E8E3DA] mb-4" />
+              <p className="text-[#1C1C1C] font-medium">Select a conversation</p>
             </div>
           )}
         </div>

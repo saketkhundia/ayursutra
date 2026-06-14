@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Stethoscope, Eye, EyeOff, Leaf, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Stethoscope, Eye, EyeOff, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { api, userAuth } from '../api';
 
 const DOCTOR_TYPES = [
@@ -28,73 +28,18 @@ const SPECIALIZATIONS_BY_TYPE: Record<string, string[]> = {
     'Manas Roga (Psychiatry)',
   ],
   Allopathy: [
-    'General Medicine',
-    'Cardiology',
-    'Dermatology',
-    'Neurology',
-    'Orthopedics',
-    'Pediatrics',
-    'Psychiatry',
-    'Gynecology & Obstetrics',
-    'Ophthalmology',
-    'ENT',
-    'General Surgery',
-    'Oncology',
-    'Pulmonology',
-    'Endocrinology',
-    'Nephrology',
-    'Gastroenterology',
+    'General Medicine', 'Cardiology', 'Dermatology', 'Neurology', 'Orthopedics',
+    'Pediatrics', 'Psychiatry', 'Gynecology & Obstetrics', 'Ophthalmology',
+    'ENT', 'General Surgery', 'Oncology', 'Pulmonology', 'Endocrinology',
+    'Nephrology', 'Gastroenterology'
   ],
-  Homeopathy: [
-    'General Homeopathy',
-    'Pediatric Homeopathy',
-    'Dermatological Homeopathy',
-    'Constitutional Prescribing',
-    'Clinical Homeopathy',
-  ],
-  Unani: [
-    'General Unani',
-    'Moalijat (Medicine)',
-    'Jarahiyat (Surgery)',
-    'Ilmul Qabalat (Gynecology)',
-    'Ilmul Atfal (Pediatrics)',
-    'Mahiyatul Amraz (Pathology)',
-  ],
-  Siddha: [
-    'General Siddha',
-    'Noi Naadal (Pathology)',
-    'Sirappu Maruthuvam (Special Medicine)',
-    'Gunapadam (Pharmacology)',
-    'Nanju Noolum Maruthuva Neethi Noolum (Toxicology)',
-  ],
-  Physiotherapy: [
-    'Orthopedic Physiotherapy',
-    'Neurological Physiotherapy',
-    'Sports Physiotherapy',
-    'Cardiopulmonary Physiotherapy',
-    'Pediatric Physiotherapy',
-    'Geriatric Physiotherapy',
-  ],
-  Dentistry: [
-    'General Dentistry',
-    'Orthodontics',
-    'Periodontics',
-    'Endodontics',
-    'Prosthodontics',
-    'Oral Surgery',
-    'Pediatric Dentistry',
-  ],
-  'Yoga & Naturopathy': [
-    'Yoga Therapy',
-    'Naturopathy',
-    'Diet & Nutrition Therapy',
-    'Acupuncture',
-    'Hydrotherapy',
-  ],
-  Other: [
-    'General Practice',
-    'Other',
-  ],
+  Homeopathy: ['General Homeopathy', 'Pediatric Homeopathy', 'Dermatological Homeopathy'],
+  Unani: ['General Unani', 'Moalijat (Medicine)', 'Jarahiyat (Surgery)'],
+  Siddha: ['General Siddha', 'Noi Naadal (Pathology)'],
+  Physiotherapy: ['Orthopedic Physiotherapy', 'Neurological Physiotherapy', 'Sports Physiotherapy'],
+  Dentistry: ['General Dentistry', 'Orthodontics', 'Oral Surgery'],
+  'Yoga & Naturopathy': ['Yoga Therapy', 'Naturopathy', 'Diet & Nutrition Therapy'],
+  Other: ['General Practice', 'Other'],
 };
 
 export default function DoctorAuth() {
@@ -169,49 +114,49 @@ export default function DoctorAuth() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-earth-950 via-earth-900 to-earth-800 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-[#F7F5F0] flex flex-col items-center justify-center p-4 font-sans">
       <div className="w-full max-w-md">
-        <Link to="/login" className="inline-flex items-center gap-2 text-earth-300 hover:text-white mb-6 text-sm transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back to home
+        <Link to="/login" className="inline-flex items-center gap-2 text-[#7A7570] hover:text-[#1C1C1C] mb-6 text-sm transition-colors font-medium">
+          <ArrowLeft className="w-4 h-4" /> Back to options
         </Link>
 
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div className="bg-white rounded-2xl border border-[#E8E3DA] overflow-hidden shadow-sm">
           {/* Header */}
-          <div className="bg-gradient-to-r from-earth-800 to-earth-900 p-7 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-saffron-500 flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <Stethoscope className="w-8 h-8 text-white" />
+          <div className="p-8 text-center border-b border-[#E8E3DA]">
+            <div className="w-12 h-12 rounded-xl bg-[#EDF4EF] flex items-center justify-center mx-auto mb-4">
+              <Stethoscope className="w-6 h-6 text-[#4E9A6F]" />
             </div>
-            <h2 className="text-2xl font-bold text-white">Doctor Portal</h2>
-            <p className="text-earth-300 text-sm mt-1">ATASS Ayurveda Management System</p>
+            <h2 className="text-2xl font-bold text-[#1C1C1C]">Practitioner Portal</h2>
+            <p className="text-[#7A7570] text-sm mt-1">Access your AyurSutra practice</p>
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-stone-200">
+          <div className="flex border-b border-[#E8E3DA]">
             <button
               onClick={() => { setTab('login'); setError(''); }}
-              className={`flex-1 py-3.5 text-sm font-semibold transition-colors ${
+              className={`flex-1 py-3.5 text-sm font-semibold transition-all ${
                 tab === 'login'
-                  ? 'text-saffron-600 border-b-2 border-saffron-500 bg-saffron-50/40'
-                  : 'text-stone-400 hover:text-stone-600'
+                  ? 'text-[#4E9A6F] border-b-2 border-[#4E9A6F] bg-[#EDF4EF]/30'
+                  : 'text-[#7A7570] hover:text-[#1C1C1C]'
               }`}
             >
               Sign In
             </button>
             <button
               onClick={() => { setTab('register'); setError(''); }}
-              className={`flex-1 py-3.5 text-sm font-semibold transition-colors ${
+              className={`flex-1 py-3.5 text-sm font-semibold transition-all ${
                 tab === 'register'
-                  ? 'text-saffron-600 border-b-2 border-saffron-500 bg-saffron-50/40'
-                  : 'text-stone-400 hover:text-stone-600'
+                  ? 'text-[#4E9A6F] border-b-2 border-[#4E9A6F] bg-[#EDF4EF]/30'
+                  : 'text-[#7A7570] hover:text-[#1C1C1C]'
               }`}
             >
               Register
             </button>
           </div>
 
-          <div className="p-7">
+          <div className="p-8">
             {error && (
-              <div className="mb-5 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
+              <div className="mb-6 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs font-medium">
                 {error}
               </div>
             )}
@@ -219,169 +164,148 @@ export default function DoctorAuth() {
             {tab === 'login' ? (
               <form onSubmit={handleLogin} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Email address</label>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Email address</label>
                   <input
                     type="email"
                     required
-                    autoComplete="email"
                     value={loginForm.email}
                     onChange={e => setLoginForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                    className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] focus:border-transparent bg-[#F7F5F0]/30"
                     placeholder="doctor@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Password</label>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Password</label>
                   <div className="relative">
                     <input
                       type={showPw ? 'text' : 'password'}
                       required
-                      autoComplete="current-password"
                       value={loginForm.password}
                       onChange={e => setLoginForm(f => ({ ...f, password: e.target.value }))}
-                      className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                      className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] focus:border-transparent bg-[#F7F5F0]/30"
                       placeholder="••••••••"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPw(v => !v)}
-                      className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-600"
+                      className="absolute right-3 top-2.5 text-[#7A7570] hover:text-[#1C1C1C]"
                     >
-                      {showPw ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-saffron-500 hover:bg-saffron-600 text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60 transition-colors mt-2"
+                  className="w-full bg-[#4E9A6F] hover:bg-[#4E9A6F]/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-60 transition-all shadow-sm mt-4"
                 >
-                  {loading ? 'Signing in…' : 'Sign In to Doctor Portal'}
+                  {loading ? 'Authenticating…' : 'Sign In to Portal'}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleRegister} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Full Name</label>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Full Name</label>
                   <input
                     type="text"
                     required
                     value={regForm.name}
                     onChange={e => setRegForm(f => ({ ...f, name: e.target.value }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                    className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] focus:border-transparent bg-[#F7F5F0]/30"
                     placeholder="Dr. Full Name"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Email address</label>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Email address</label>
                   <input
                     type="email"
                     required
                     value={regForm.email}
                     onChange={e => setRegForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                    className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] focus:border-transparent bg-[#F7F5F0]/30"
                     placeholder="doctor@example.com"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                    Doctor Type <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={regForm.doctor_type}
-                    onChange={e => setRegForm(f => ({ ...f, doctor_type: e.target.value, specialization: '' }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent bg-white"
-                  >
-                    {DOCTOR_TYPES.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                    Specialization <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={regForm.specialization}
-                    onChange={e => setRegForm(f => ({ ...f, specialization: e.target.value }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent bg-white"
-                  >
-                    <option value="">Select your specialization…</option>
-                    {(SPECIALIZATIONS_BY_TYPE[regForm.doctor_type] || []).map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Type</label>
+                    <select
+                      value={regForm.doctor_type}
+                      onChange={e => setRegForm(f => ({ ...f, doctor_type: e.target.value, specialization: '' }))}
+                      className="w-full border border-[#E8E3DA] rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-white"
+                    >
+                      {DOCTOR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Specialization</label>
+                    <select
+                      required
+                      value={regForm.specialization}
+                      onChange={e => setRegForm(f => ({ ...f, specialization: e.target.value }))}
+                      className="w-full border border-[#E8E3DA] rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-white"
+                    >
+                      <option value="">Select…</option>
+                      {(SPECIALIZATIONS_BY_TYPE[regForm.doctor_type] || []).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1.5">License No.</label>
+                    <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">License No.</label>
                     <input
                       type="text"
                       value={regForm.license_number}
                       onChange={e => setRegForm(f => ({ ...f, license_number: e.target.value }))}
-                      className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
-                      placeholder="e.g. MCI-2020-XXXX"
+                      className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-[#F7F5F0]/30"
+                      placeholder="Registration #"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-stone-700 mb-1.5">Experience (yrs)</label>
+                    <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Exp (yrs)</label>
                     <input
                       type="number"
-                      min="0"
-                      max="60"
                       value={regForm.experience_years}
                       onChange={e => setRegForm(f => ({ ...f, experience_years: e.target.value }))}
-                      className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                      className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-[#F7F5F0]/30"
                       placeholder="0"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Password</label>
-                  <div className="relative">
-                    <input
-                      type={showPw ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      autoComplete="new-password"
-                      value={regForm.password}
-                      onChange={e => setRegForm(f => ({ ...f, password: e.target.value }))}
-                      className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 pr-11 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
-                      placeholder="Minimum 6 characters"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPw(v => !v)}
-                      className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-600"
-                    >
-                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Password</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={regForm.password}
+                    onChange={e => setRegForm(f => ({ ...f, password: e.target.value }))}
+                    className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-[#F7F5F0]/30"
+                    placeholder="Min 6 characters"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1.5">Confirm Password</label>
+                  <label className="block text-[11px] font-semibold tracking-wider text-[#7A7570] uppercase mb-2">Confirm Password</label>
                   <input
-                    type={showPw ? 'text' : 'password'}
+                    type="password"
                     required
                     value={regForm.confirmPassword}
                     onChange={e => setRegForm(f => ({ ...f, confirmPassword: e.target.value }))}
-                    className="w-full border border-stone-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-saffron-400 focus:border-transparent"
+                    className="w-full border border-[#E8E3DA] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#4E9A6F] bg-[#F7F5F0]/30"
                     placeholder="Repeat password"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-saffron-500 hover:bg-saffron-600 text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60 transition-colors mt-1"
+                  className="w-full bg-[#4E9A6F] hover:bg-[#4E9A6F]/90 text-white rounded-xl py-3 text-sm font-semibold disabled:opacity-60 transition-all mt-2"
                 >
-                  {loading ? 'Creating account…' : 'Create Doctor Account'}
+                  {loading ? 'Creating account…' : 'Create Account'}
                 </button>
-                <div className="flex items-start gap-2 bg-saffron-50 rounded-xl p-3 mt-1">
-                  <ShieldCheck className="w-4 h-4 text-saffron-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-stone-500">
-                    Your account will appear in the patient directory immediately. Verified status is granted after license review by admin.
+                <div className="flex items-start gap-2 bg-[#EDF4EF] rounded-xl p-3 mt-1">
+                  <ShieldCheck className="w-4 h-4 text-[#4E9A6F] mt-0.5 flex-shrink-0" />
+                  <p className="text-[10px] text-[#7A7570] leading-normal font-medium uppercase tracking-wider">
+                    Verified status is granted after license review by admin.
                   </p>
                 </div>
               </form>
@@ -389,10 +313,10 @@ export default function DoctorAuth() {
           </div>
         </div>
 
-        {/* Footer branding */}
-        <div className="text-center mt-6 flex items-center justify-center gap-2 text-earth-500 text-sm">
-          <Leaf className="w-4 h-4 text-saffron-500" />
-          ATASS · Ayurveda Wellness Platform
+        <div className="text-center mt-8">
+          <p className="text-[#7A7570] text-xs font-medium uppercase tracking-[0.15em]">
+            AyurSutra · Ayurvedic Platform
+          </p>
         </div>
       </div>
     </div>

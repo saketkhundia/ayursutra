@@ -1,14 +1,19 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // Universal auth — works for both doctors and patients
 export const userAuth = {
   getToken: (): string | null => localStorage.getItem('user_token') || localStorage.getItem('doctor_token'),
   getRefreshToken: (): string | null => localStorage.getItem('user_refresh_token'),
   getUser: (): any => {
-    const u = localStorage.getItem('user_info');
-    if (u) return JSON.parse(u);
-    const d = localStorage.getItem('doctor_info');
-    return d ? JSON.parse(d) : null;
+    try {
+      const u = localStorage.getItem('user_info');
+      if (u) return JSON.parse(u);
+      const d = localStorage.getItem('doctor_info');
+      return d ? JSON.parse(d) : null;
+    } catch (e) {
+      console.error('Failed to parse user info from localStorage', e);
+      return null;
+    }
   },
   getRole: (): 'doctor' | 'patient' | null => {
     const r = localStorage.getItem('user_role') as 'doctor' | 'patient' | null;
@@ -168,6 +173,8 @@ export const api = {
   createTreatmentPlan: (data: any) => request<any>('/treatment-plans', { method: 'POST', body: JSON.stringify(data) }),
   getPatientTreatmentPlans: (patientId: string) =>
     authRequest<any[]>(`/treatment-plans?patient_id=${patientId}`),
+  updateTreatmentPlan: (id: string, data: any) =>
+    request<any>(`/treatment-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   // Sessions - PHASE 1: Get pending appointments for doctor
   getDoctorPendingAppointments: (practitionerId: string) =>
@@ -202,22 +209,32 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ session_notes: sessionNotes }),
     }),
+  clearSessions: (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<any>(`/sessions/clear${query}`, { method: 'DELETE' });
+  },
 
   // Notifications
   getNotifications: (params?: Record<string, string>) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
     return request<any[]>(`/notifications${query}`);
   },
-  getUnreadCount: (patientId?: string) =>
-    request<{ count: number }>(`/notifications/unread-count${patientId ? `?patient_id=${patientId}` : ''}`),
+  getUnreadCount: (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<{ count: number }>(`/notifications/unread-count${query}`);
+  },
   markRead: (id: string) => request<any>(`/notifications/${id}/read`, { method: 'PATCH' }),
-  markAllRead: (patientId?: string) =>
-    request<any>('/notifications/read-all', { method: 'PATCH', body: JSON.stringify(patientId ? { patient_id: patientId } : {}) }),
+  markAllRead: (params?: Record<string, string>) =>
+    request<any>('/notifications/read-all', { method: 'PATCH', body: JSON.stringify(params || {}) }),
   createNotification: (data: any) => request<any>('/notifications', { method: 'POST', body: JSON.stringify(data) }),
   getNotificationPrefs: (patientId: string) => request<any>(`/notifications/preferences/${patientId}`),
   updateNotificationPrefs: (patientId: string, data: any) =>
     request<any>(`/notifications/preferences/${patientId}`, { method: 'PUT', body: JSON.stringify(data) }),
   getChannelStatus: () => request<any>('/channels'),
+  clearNotifications: (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<any>(`/notifications${query}`, { method: 'DELETE' });
+  },
 
   // Feedback
   getSessionFeedback: (sessionId: string) => request<any[]>(`/feedback/session/${sessionId}`),
@@ -341,4 +358,10 @@ export const api = {
   // Appointments - Get patient's appointment history
   getPatientAppointmentHistory: (patientId: string) =>
     authRequest<any[]>(`/appointments/patient/${patientId}/history`),
+
+  // Appointments - Clear history
+  clearAppointments: (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    return authRequest<any>(`/appointments/clear${query}`, { method: 'DELETE' });
+  },
 };

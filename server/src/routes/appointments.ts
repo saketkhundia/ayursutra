@@ -1,26 +1,129 @@
 import { Router, Request, Response } from 'express';
 import db, { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
-import { sendNotification } from '../services/notification-service';
-import { 
-  emitDoctorAppointmentRequest, 
-  emitTreatmentPlanCreated,
-  emitPendingAppointmentsCount 
-} from '../services/realtime';
+import { notifyPatient, notifyDoctors } from '../services/notification-service';
+import { emitTreatmentPlanCreated } from '../services/realtime';
 
 const router = Router();
 
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+async function checkDoctorAvailability(
+  doctor_id: string,
+  preferred_date: string,
+  preferred_time: string,
+  duration_minutes: number
+) {
+  const dayOfWeek = new Date(`${preferred_date}T12:00:00`).getDay();
+  if (Number.isNaN(dayOfWeek)) {
+    return { available: false, reason: 'Invalid appointment date.' };
+  }
+
+  const requestedEnd = addMinutesToTime(preferred_time, duration_minutes);
+  const availSnap = await collections.practitionerAvailability()
+    .where('practitioner_id', '==', doctor_id)
+    .where('day_of_week', '==', dayOfWeek)
+    .get();
+
+  const availability = queryToArray(availSnap);
+  const matchesAvailability = availability.some((slot: any) =>
+    preferred_time >= slot.start_time && requestedEnd <= slot.end_time
+  );
+
+  if (!matchesAvailability) {
+    return {
+      available: false,
+      reason: 'The requested time is outside the doctor availability.',
+      available_windows: availability.map((slot: any) => `${slot.start_time}-${slot.end_time}`),
+    };
+  }
+
+  const sessionSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctor_id)
+    .where('scheduled_date', '==', preferred_date)
+    .get();
+
+  const hasSessionConflict = sessionSnap.docs
+    .map(d => d.data())
+    .filter(s => ['pending', 'scheduled', 'in-progress'].includes(s.status))
+    .some(s => preferred_time < addMinutesToTime(s.scheduled_time, s.duration_minutes || 60) && requestedEnd > s.scheduled_time);
+
+  if (hasSessionConflict) {
+    return { available: false, reason: 'The doctor already has another therapy session at this time.' };
+  }
+
+  const appointmentSnap = await collections.appointments()
+    .where('doctor_id', '==', doctor_id)
+    .where('preferred_date', '==', preferred_date)
+    .get();
+
+  const hasAppointmentConflict = appointmentSnap.docs
+    .map(d => d.data())
+    .filter(a => a.status === 'accepted')
+    .some(a => preferred_time < addMinutesToTime(a.preferred_time, a.duration_minutes || 60) && requestedEnd > a.preferred_time);
+
+  if (hasAppointmentConflict) {
+    return { available: false, reason: 'The doctor already has an accepted appointment at this time.' };
+  }
+
+  return { available: true };
+}
+
+async function sendUnavailableMessage(appointment: any, reason: string, availableWindows: string[] = []) {
+  const availableText = availableWindows.length > 0
+    ? ` Available windows for that day: ${availableWindows.join(', ')}.`
+    : '';
+  const content = `The requested therapy slot is not available. ${reason} Please book another time that matches the doctor's availability.${availableText}`;
+
+  await notifyPatient({
+    patient_id: appointment.patient_id,
+    type: 'appointment_rejected',
+    title: `Please choose another time with ${appointment.doctor_name}`,
+    message: content,
+    scheduled_for: `${appointment.preferred_date} ${appointment.preferred_time}`,
+  });
+
+  const messageId = uuidv4();
+  const conversationId = `${[appointment.patient_id, appointment.doctor_id].sort().join('_')}`;
+  const now = new Date().toISOString();
+  await collections.messages().doc(messageId).set({
+    id: messageId,
+    conversation_id: conversationId,
+    sender_id: appointment.doctor_id,
+    receiver_id: appointment.patient_id,
+    content,
+    message_type: 'system_availability',
+    created_at: now,
+    read: false,
+  });
+
+  await collections.conversations().doc(conversationId).set(
+    {
+      last_message: content,
+      last_message_at: now,
+      last_message_from: appointment.doctor_id,
+    },
+    { merge: true }
+  );
+}
+
 // Helper to enrich appointment with names and details
 async function enrichAppointment(apt: any) {
-  const pDoc = await collections.patients().doc(apt.patient_id).get();
-  const drDoc = await collections.practitioners().doc(apt.doctor_id).get();
-  const ttDoc = apt.therapy_type_id ? await collections.therapyTypes().doc(apt.therapy_type_id).get() : null;
-  
-  apt.patient_name = pDoc.exists ? pDoc.data()?.name : 'Unknown Patient';
-  apt.patient_email = pDoc.exists ? pDoc.data()?.email : '';
-  apt.patient_phone = pDoc.exists ? pDoc.data()?.phone : '';
-  apt.doctor_name = drDoc.exists ? drDoc.data()?.name : 'Unknown Doctor';
-  apt.doctor_specialization = drDoc.exists ? drDoc.data()?.specialization : '';
+  const [pDoc, drDoc, ttDoc] = await Promise.all([
+    apt.patient_id ? collections.patients().doc(apt.patient_id).get() : Promise.resolve(null),
+    apt.doctor_id ? collections.practitioners().doc(apt.doctor_id).get() : Promise.resolve(null),
+    apt.therapy_type_id ? collections.therapyTypes().doc(apt.therapy_type_id).get() : Promise.resolve(null),
+  ]);
+
+  apt.patient_name = pDoc?.exists ? pDoc.data()?.name : apt.patient_name || 'Unknown Patient';
+  apt.patient_email = pDoc?.exists ? pDoc.data()?.email : apt.patient_email || '';
+  apt.patient_phone = pDoc?.exists ? pDoc.data()?.phone : apt.patient_phone || '';
+  apt.doctor_name = drDoc?.exists ? drDoc.data()?.name : apt.doctor_name || 'Unknown Doctor';
+  apt.doctor_specialization = drDoc?.exists ? drDoc.data()?.specialization : apt.doctor_specialization || '';
   apt.therapy_name = ttDoc?.exists ? ttDoc.data()?.name : apt.therapy_type;
   apt.therapy_description = ttDoc?.exists ? ttDoc.data()?.description : '';
   
@@ -51,7 +154,15 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Create appointment request with 'pending' status
+    const availability = await checkDoctorAvailability(
+      doctor_id,
+      preferred_date,
+      preferred_time,
+      duration_minutes
+    );
+    const now = new Date().toISOString();
+
+    // Create appointment with an automatic decision based on doctor availability.
     const appointmentId = uuidv4();
     const appointment = {
       patient_id,
@@ -64,12 +175,13 @@ router.post('/', async (req: Request, res: Response) => {
       preferred_time,
       reason_for_visit: reason_for_visit || '',
       duration_minutes,
-      status: 'pending' as const, // pending, accepted, rejected, completed
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      accepted_at: null,
-      rejected_at: null,
-      rejection_reason: null,
+      status: availability.available ? 'accepted' as const : 'rejected' as const,
+      created_at: now,
+      updated_at: now,
+      accepted_at: availability.available ? now : null,
+      rejected_at: availability.available ? null : now,
+      rejection_reason: availability.available ? null : availability.reason,
+      auto_decision: true,
     };
 
     // Save appointment
@@ -78,27 +190,66 @@ router.post('/', async (req: Request, res: Response) => {
     // Enrich appointment details before returning
     const enrichedAppointment = await enrichAppointment({ id: appointmentId, ...appointment });
 
-    // Get doctor details
-    const doctorDoc = await collections.practitioners().doc(doctor_id).get();
-    const doctorData = doctorDoc.data();
-    const doctor_email = doctorData?.email;
+    if (availability.available) {
+      const sessionId = uuidv4();
+      const session = {
+        id: sessionId,
+        patient_id,
+        practitioner_id: doctor_id,
+        therapy_type_id: therapy_type_id || null,
+        therapy_name: therapy_type,
+        scheduled_date: preferred_date,
+        scheduled_time: preferred_time,
+        duration_minutes,
+        status: 'in-progress',
+        confirmed_at: now,
+        actual_start_time: now,
+        actual_end_time: null,
+        created_at: now,
+        updated_at: now,
+        notes: `Automatically accepted after doctor availability check: ${reason_for_visit || ''}`,
+        appointment_id: appointmentId,
+        auto_accepted: true,
+      };
 
-    // Emit real-time notification to doctor via Socket.io
-    emitDoctorAppointmentRequest(doctor_id, {
-      appointment_id: appointmentId,
-      patient_id,
-      patient_name: enrichedAppointment.patient_name,
-      patient_email: enrichedAppointment.patient_email,
-      therapy_type: therapy_type,
-      preferred_date,
-      preferred_time,
-      reason_for_visit,
-    });
+      await collections.therapySessions().doc(sessionId).set(session);
 
-    // Send email notification to patient (if email is enabled)
-    // Note: Doctor gets Socket.io real-time notification instead
-    const patientDoc = await collections.patients().doc(patient_id).get();
-    const patientEmail = patientDoc.data()?.email;
+      // Notify patient with different message for doctor
+      await notifyPatient({
+        patient_id,
+        session_id: sessionId,
+        type: 'therapy_started',
+        title: `Appointment Booked with ${enrichedAppointment.doctor_name}`,
+        message: `Hi ${enrichedAppointment.patient_name}, your ${therapy_type} appointment on ${preferred_date} at ${preferred_time} has been booked successfully.`,
+        scheduled_for: `${preferred_date} ${preferred_time}`,
+      });
+      await notifyDoctors({
+        title: 'New Appointment Booked',
+        message: `${enrichedAppointment.patient_name} booked ${therapy_type} on ${preferred_date} at ${preferred_time}.`,
+        session_id: sessionId,
+      });
+
+      emitTreatmentPlanCreated(patient_id, {
+        appointment_id: appointmentId,
+        session_id: sessionId,
+        doctor_name: enrichedAppointment.doctor_name,
+        therapy_type,
+        scheduled_date: preferred_date,
+        scheduled_time: preferred_time,
+      });
+
+      return res.status(201).json({
+        ...enrichedAppointment,
+        session,
+        message: 'Appointment booked successfully.',
+      });
+    }
+
+    await sendUnavailableMessage(
+      enrichedAppointment,
+      availability.reason || 'The doctor is not available at that time.',
+      availability.available_windows || []
+    );
 
     res.status(201).json(enrichedAppointment);
   } catch (error: any) {
@@ -249,11 +400,15 @@ router.patch('/:id/accept', async (req: Request, res: Response) => {
 
     // Notify patient via in-app notification
     try {
-      await sendNotification({
+      await notifyPatient({
         patient_id: appointment.patient_id,
         type: 'appointment_accepted',
         title: `Appointment Confirmed with ${appointment.doctor_name}`,
         message: `Your appointment for ${appointment.therapy_type} on ${appointment.preferred_date} at ${appointment.preferred_time} has been confirmed. ${availability_note || ''}`,
+      });
+      await notifyDoctors({
+        title: 'Appointment Confirmed',
+        message: `${appointment.patient_name} confirmed for ${appointment.therapy_type} on ${appointment.preferred_date} at ${appointment.preferred_time}.`,
       });
     } catch (notifError) {
       console.warn('[Appointments] Could not send acceptance notification:', notifError);
@@ -314,11 +469,15 @@ router.patch('/:id/reject', async (req: Request, res: Response) => {
     const patientEmail = patientDoc.data()?.email;
 
     try {
-      await sendNotification({
+      await notifyPatient({
         patient_id: appointment.patient_id,
         type: 'appointment_rejected',
         title: `Appointment Not Available - ${appointment.doctor_name}`,
         message: `Unfortunately, ${appointment.doctor_name} is not available for your requested appointment on ${appointment.preferred_date}. Reason: ${rejection_reason}`,
+      });
+      await notifyDoctors({
+        title: 'Appointment Rejected',
+        message: `Rejected ${appointment.patient_name}'s ${appointment.therapy_type} appointment on ${appointment.preferred_date} at ${appointment.preferred_time}. Reason: ${rejection_reason}`,
       });
     } catch (notifError) {
       console.warn('[Appointments] Could not send rejection notification:', notifError);
@@ -422,6 +581,30 @@ router.get('/patient/:patient_id/history', async (req: Request, res: Response) =
     res.json(appointments);
   } catch (error: any) {
     console.error('[Appointments] Error fetching patient appointments:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /appointments/clear - Clear appointment history
+ * Supports filtering by doctor_id or patient_id
+ */
+router.delete('/clear', async (req: Request, res: Response) => {
+  try {
+    const { patient_id, doctor_id, older_than } = req.query;
+
+    let query: FirebaseFirestore.Query = collections.appointments();
+    if (patient_id) query = query.where('patient_id', '==', patient_id as string);
+    if (doctor_id) query = query.where('doctor_id', '==', doctor_id as string);
+
+    const snap = await query.get();
+    const batch = db.batch();
+    snap.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    res.json({ message: 'Appointment history cleared', count: snap.size });
+  } catch (error: any) {
+    console.error('[Appointments] Error clearing appointments:', error);
     res.status(500).json({ error: error.message });
   }
 });

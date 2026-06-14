@@ -5,6 +5,7 @@
  */
 import { collections, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { emitNotification, emitDoctorNotification } from './realtime';
 
 // Channel configuration (from environment - safe defaults for dev)
 const config = {
@@ -65,7 +66,8 @@ async function getPatientContact(patient_id: string) {
 async function deliverInApp(payload: NotificationPayload): Promise<DeliveryResult> {
   const id = uuidv4();
   const now = new Date().toISOString();
-  await collections.notifications().doc(id).set({
+  const notifData = {
+    id,
     patient_id: payload.patient_id,
     session_id: payload.session_id || null,
     type: payload.type,
@@ -76,7 +78,9 @@ async function deliverInApp(payload: NotificationPayload): Promise<DeliveryResul
     is_read: 0,
     sent_at: null,
     created_at: now,
-  });
+  };
+  await collections.notifications().doc(id).set(notifData);
+  try { emitNotification(notifData); } catch (_) {}
   return { channel: 'in-app', success: true, message_id: id };
 }
 
@@ -240,9 +244,9 @@ async function deliverPush(payload: NotificationPayload): Promise<DeliveryResult
 
 
 /**
- * Main dispatch function - routes notification to all enabled channels per patient preferences.
+ * Send notification to a patient (Firestore + real-time patient room)
  */
-export async function sendNotification(payload: NotificationPayload): Promise<DeliveryResult[]> {
+export async function notifyPatient(payload: NotificationPayload): Promise<DeliveryResult[]> {
   const results: DeliveryResult[] = [];
   const prefs = await getPatientPrefs(payload.patient_id);
   const contact = await getPatientContact(payload.patient_id);
@@ -269,6 +273,40 @@ export async function sendNotification(payload: NotificationPayload): Promise<De
 
   return results;
 }
+
+export interface DoctorNotificationPayload {
+  title: string;
+  message: string;
+  session_id?: string;
+  type?: string;
+  scheduled_for?: string;
+}
+
+/**
+ * Send notification to all doctors (Firestore + dashboard room)
+ */
+export async function notifyDoctors(payload: DoctorNotificationPayload): Promise<DeliveryResult> {
+  const now = new Date().toISOString();
+  const docNotif = {
+    id: uuidv4(),
+    patient_id: '',
+    session_id: payload.session_id || null,
+    type: payload.type || 'custom',
+    channel: 'in-app',
+    title: payload.title,
+    message: payload.message,
+    scheduled_for: payload.scheduled_for || null,
+    is_read: 0,
+    sent_at: null,
+    created_at: now,
+  };
+  await collections.notifications().doc(docNotif.id).set(docNotif);
+  try { emitDoctorNotification(docNotif); } catch (_) {}
+  return { channel: 'in-app-doctor', success: true, message_id: docNotif.id };
+}
+
+/** @deprecated Use notifyPatient() + notifyDoctors() instead */
+export const sendNotification = notifyPatient;
 
 /**
  * Get notification channel status (for frontend display)

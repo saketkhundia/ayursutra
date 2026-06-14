@@ -13,7 +13,7 @@ export default function PatientDetail() {
   const [milestones, setMilestones] = useState<any[]>([]);
   const [treatmentPlans, setTreatmentPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const { on, joinRoom } = useSocket();
+  const { on, joinPatientChannel, leaveRoom } = useSocket();
 
   const loadPatientData = () => {
     if (!id) return;
@@ -35,9 +35,12 @@ export default function PatientDetail() {
   useEffect(() => {
     loadPatientData();
     if (id) {
-      joinRoom(`patient:${id}`);
+      joinPatientChannel(id);
       const unsub = on('treatment-plan:created', loadPatientData);
-      return unsub;
+      return () => {
+        unsub();
+        leaveRoom(`patient:${id}`);
+      };
     }
   }, [id]);
 

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AyurSutra — Practitioner Dashboard</title>
+  
+  <!-- Import DM Sans from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    /* RESET & BASE */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background-color: #F7F5F0; /* Warm Neutral Background */
+      color: #1C1C1C; /* Primary Text */
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* NAVBAR */
+    .nav {
+      height: 56px;
+      background-color: #FFFFFF;
+      border-bottom: 1px solid #E8E3DA;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-logo {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1C1C1C;
+      text-decoration: none;
+      margin-right: 40px;
+    }
+
+    .nav-logo span {
+      color: #4E9A6F; /* Primary Accent */
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 4px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 14px;
+      font-weight: 400;
+      color: #5A5550; /* Nav links color */
+      text-decoration: none;
+      padding: 8px 16px;
+      border-radius: 999px;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    .nav-links a:hover {
+      background-color: #F7F5F0;
+    }
+
+    .nav-links a.active {
+      background-color: #EDF4EF; /* Active nav pill */
+      color: #4E9A6F;
+      font-weight: 500;
+      border: 1px solid #C5DDD0;
+    }
+
+    /* DASHBOARD BODY */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px;
+    }
+
+    .page-title {
+      font-size: 20px;
+      font-weight: 500;
+      color: #1C1C1C;
+      margin-bottom: 24px;
+    }
+
+    /* STAT CARDS */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background-color: #FFFFFF;
+      border: 1px solid #E8E3DA;
+      border-radius: 10px;
+      padding: 20px 24px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: #7A7570; /* Secondary text */
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .stat-number {
+      font-size: 36px;
+      font-weight: 700;
+      color: #1C1C1C;
+      margin-bottom: 4px;
+    }
+
+    .stat-subtext {
+      font-size: 13px;
+      font-weight: 400;
+      color: #4E9A6F; /* Positive delta / Accent */
+    }
+
+    /* BOTTOM CONTENT ROW */
+    .content-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background-color: #FFFFFF;
+      border: 1px solid #E8E3DA;
+      border-radius: 10px;
+      padding: 24px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #1C1C1C;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .card-title a {
+      font-size: 13px;
+      font-weight: 400;
+      color: #4E9A6F;
+      text-decoration: none;
+    }
+
+    /* SESSIONS LIST */
+    .session-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #F0F0F0;
+    }
+
+    .session-item:last-child {
+      border-bottom: none;
+    }
+
+    .session-info {
+      flex: 1;
+    }
+
+    .session-patient {
+      font-size: 14px;
+      font-weight: 500;
+      color: #1C1C1C;
+    }
+
+    .session-type {
+      font-size: 13px;
+      color: #7A7570;
+    }
+
+    .session-time {
+      font-size: 13px;
+      color: #1C1C1C;
+      text-align: right;
+      font-weight: 500;
+    }
+
+    /* ACTIVITY FEED */
+    .activity-item {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .activity-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #4E9A6F;
+      border-radius: 50%;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .activity-content {
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .activity-time {
+      font-size: 11px;
+      color: #7A7570;
+      margin-top: 2px;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 992px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+      .nav {
+        padding: 0 16px;
+      }
+      .nav-links {
+        display: none; /* Mobile nav could be a hamburger, but keeping it simple as requested */
+      }
+      .container {
+        padding: 24px 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="nav">
+    <a href="#" class="nav-logo">Ayur<span>Sutra</span></a>
+    
+    <ul class="nav-links">
+      <li><a href="#" class="active">Dashboard</a></li>
+      <li><a href="#">Patients</a></li>
+      <li><a href="#">Appointments</a></li>
+      <li><a href="#">Scheduling</a></li>
+      <li><a href="#">Therapy</a></li>
+      <li><a href="#">Messages</a></li>
+    </ul>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main class="container">
+    <h1 class="page-title">Good morning, Dr. Sharma 👋</h1>
+
+    <!-- STATS ROW -->
+    <div class="stats-grid">
+      <!-- Card 1 -->
+      <div class="stat-card">
+        <p class="stat-label">Today's Sessions</p>
+        <p class="stat-number">12</p>
+        <p class="stat-subtext">+3 from yesterday</p>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="stat-card">
+        <p class="stat-label">Pending Review</p>
+        <p class="stat-number">4</p>
+        <p class="stat-subtext">AI suggestions ready</p>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="stat-card">
+        <p class="stat-label">Completion Rate</p>
+        <p class="stat-number">94%</p>
+        <p class="stat-subtext">This week</p>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="content-grid">
+      <!-- UPCOMING SESSIONS -->
+      <section class="card">
+        <h2 class="card-title">
+          Upcoming Sessions
+          <a href="#">View All</a>
+        </h2>
+        
+        <div class="session-item">
+          <div class="session-info">
+            <p class="session-patient">Aditi Rao</p>
+            <p class="session-type">Panchakarma Detox</p>
+          </div>
+          <p class="session-time">09:30 AM</p>
+        </div>
+
+        <div class="session-item">
+          <div class="session-info">
+            <p class="session-patient">Rahul Verma</p>
+            <p class="session-type">Abhyanga Massage</p>
+          </div>
+          <p class="session-time">11:00 AM</p>
+        </div>
+
+        <div class="session-item">
+          <div class="session-info">
+            <p class="session-patient">Sneha Kapoor</p>
+            <p class="session-type">Shirodhara Therapy</p>
+          </div>
+          <p class="session-time">02:15 PM</p>
+        </div>
+
+        <div class="session-item">
+          <div class="session-info">
+            <p class="session-patient">Vikram Singh</p>
+            <p class="session-type">Basti Treatment</p>
+          </div>
+          <p class="session-time">04:45 PM</p>
+        </div>
+      </section>
+
+      <!-- RECENT ACTIVITY -->
+      <section class="card">
+        <h2 class="card-title">Recent Activity</h2>
+        
+        <div class="activity-item">
+          <span class="activity-dot"></span>
+          <div class="activity-content">
+            <p>New patient <strong>Arjun Mehta</strong> registered</p>
+            <p class="activity-time">12 mins ago</p>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <span class="activity-dot" style="background-color: #E8A855;"></span>
+          <div class="activity-content">
+            <p>Treatment plan updated for <strong>Priya Shah</strong></p>
+            <p class="activity-time">45 mins ago</p>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <span class="activity-dot"></span>
+          <div class="activity-content">
+            <p>Payment received from <strong>Karan Johar</strong></p>
+            <p class="activity-time">2 hours ago</p>
+          </div>
+        </div>
+
+        <div class="activity-item">
+          <span class="activity-dot"></span>
+          <div class="activity-content">
+            <p>Consultation completed for <strong>Meera Bai</strong></p>
+            <p class="activity-time">3 hours ago</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // Simple vanilla JS for nav interaction
+    document.querySelectorAll('.nav-links a').forEach(link => {
+      link.addEventListener('click', function(e) {
+        // e.preventDefault(); // Uncomment if you don't want navigation to happen
+        document.querySelectorAll('.nav-links a').forEach(l => l.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>

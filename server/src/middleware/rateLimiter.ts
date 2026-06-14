@@ -14,8 +14,13 @@ const apiLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skip: (req) => {
+    // Keep local development usable while preserving limits elsewhere.
+    if (config.NODE_ENV === 'development') {
+      return true;
+    }
+
     // Don't rate limit health checks
-    return req.path === '/api/health';
+    return req.path === '/api/health' || req.path === '/api/readiness';
   },
 });
 

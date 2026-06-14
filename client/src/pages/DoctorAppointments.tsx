@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, CheckCircle, XCircle, MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, MessageSquare, AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { api, userAuth } from '../api';
 import { useSocket } from '../hooks/useSocket';
 
@@ -30,11 +30,7 @@ export default function DoctorAppointments() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showAiSchedule, setShowAiSchedule] = useState(false);
-  const [aiScheduleAppointment, setAiScheduleAppointment] = useState<Appointment | null>(null);
-  const [recommendedTherapies, setRecommendedTherapies] = useState<any[]>([]);
-  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
-  const [recommendationError, setRecommendationError] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const currentUser = userAuth.getUser();
   const doctorId = currentUser?.id;
@@ -77,6 +73,12 @@ export default function DoctorAppointments() {
   }, [socket]);
 
   const fetchAppointments = async () => {
+    if (!doctorId) {
+      setError('Doctor profile not found. Please login.');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
@@ -84,7 +86,15 @@ export default function DoctorAppointments() {
       setAppointments(data);
     } catch (err: any) {
       console.error('Failed to fetch appointments:', err);
-      setError('Failed to load appointments');
+      try {
+        const pendingAppointments = await api.getPendingAppointmentRequests(doctorId);
+        setAppointments(pendingAppointments);
+        setError('Could not load all appointments. Showing pending requests only.');
+      } catch (fallbackErr) {
+        console.error('Failed to fetch pending appointments:', fallbackErr);
+        setAppointments([]);
+        setError(err.message || 'Failed to load appointments');
+      }
     } finally {
       setLoading(false);
     }
@@ -142,48 +152,25 @@ export default function DoctorAppointments() {
     navigate(`/messages?patient=${appointment.patient_id}`);
   };
 
-  const handleOpenAiSchedule = async (appointment: Appointment) => {
-    setAiScheduleAppointment(appointment);
-    setShowAiSchedule(true);
-    setLoadingRecommendations(true);
-    setRecommendationError('');
-    
+  const handleClearHistory = async () => {
     try {
-      console.log('🔍 Requesting recommendations for:', {
-        appointmentId: appointment.id,
-        patientId: appointment.patient_id,
-        therapyType: appointment.therapy_type,
-      });
-
-      // Get recommended therapies for this appointment
-      const recommendations = await api.recommendTherapiesForAppointment(
-        appointment.id,
-        appointment.patient_id,
-        appointment.therapy_type || 'General'
-      );
-
-      console.log('✅ Recommendations received:', recommendations);
-      setRecommendedTherapies(recommendations.recommendations || []);
+      const res = await api.clearAppointments({ doctor_id: doctorId });
+      setAppointments([]);
+      setConfirmClear(false);
+      alert(res.message || 'Appointment history cleared');
     } catch (err: any) {
-      console.error('❌ Error loading recommendations:', err);
-      
-      // Extract detailed error message
-      let errorMsg = err.message || 'Failed to load recommendations';
-      const details = err.details;
-      
-      // If API provided available therapies in debug info, include them
-      if (details?.debug?.available) {
-        errorMsg += `\n\nAvailable therapies: ${details.debug.available.join(', ')}`;
-        console.log('Debug info:', details.debug);
-      }
-      
-      setRecommendationError(errorMsg);
-      setRecommendedTherapies([]);
-    } finally {
-      setLoadingRecommendations(false);
+      console.error('Error clearing history:', err);
+      alert('Failed to clear history: ' + (err.message || 'Unknown error'));
     }
   };
 
+  const appointmentCounts = appointments.reduce(
+    (counts, apt) => ({
+      ...counts,
+      [apt.status]: (counts[apt.status] || 0) + 1,
+    }),
+    { pending: 0, accepted: 0, rejected: 0 } as Record<Appointment['status'], number>
+  );
   const filteredAppointments = appointments.filter(apt => apt.status === activeTab);
 
   if (loading) {
@@ -198,9 +185,25 @@ export default function DoctorAppointments() {
     <div className="min-h-screen bg-stone-50">
       {/* Header */}
       <div className="bg-gradient-to-r from-saffron-500 to-saffron-600 text-white py-6 px-4">
-        <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold mb-2">Appointment Requests</h1>
-          <p className="text-saffron-100">Manage and respond to patient appointment requests</p>
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Appointment Requests</h1>
+            <p className="text-saffron-100">Manage and respond to patient appointment requests</p>
+          </div>
+          {!confirmClear ? (
+            <button onClick={() => setConfirmClear(true)} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors text-sm font-medium">
+              <Trash2 className="w-4 h-4" /> Clear History
+            </button>
+          ) : (
+            <div className="flex gap-2 items-center">
+              <button onClick={handleClearHistory} className="bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors text-xs font-medium">
+                Confirm Clear
+              </button>
+              <button onClick={() => setConfirmClear(false)} className="bg-white/10 text-white px-3 py-2 rounded-lg hover:bg-white/20 transition-colors text-xs font-medium">
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -229,7 +232,7 @@ export default function DoctorAppointments() {
                 {tab === 'accepted' && '✓ Accepted'}
                 {tab === 'rejected' && '✗ Rejected'}
                 <span className="ml-2 text-sm bg-stone-200 text-stone-700 px-2 py-0.5 rounded-full inline-block">
-                  {filteredAppointments.length}
+                  {appointmentCounts[tab]}
                 </span>
               </button>
             ))}
@@ -310,13 +313,7 @@ export default function DoctorAppointments() {
 
                   {/* Actions */}
                   {appointment.status === 'pending' && (
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => handleOpenAiSchedule(appointment)}
-                        className="w-full flex items-center justify-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-3 rounded-lg transition text-sm"
-                      >
-                        🧠 AI Smart Schedule
-                      </button>
+                    <div>
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleAccept(appointment)}
@@ -412,128 +409,6 @@ export default function DoctorAppointments() {
         </div>
       )}
 
-      {/* AI Smart Schedule Modal */}
-      {showAiSchedule && aiScheduleAppointment && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-stone-800 flex items-center gap-2">
-                <span>🧠 AI Smart Schedule</span>
-              </h2>
-              <button
-                onClick={() => {
-                  setShowAiSchedule(false);
-                  setAiScheduleAppointment(null);
-                  setRecommendedTherapies([]);
-                  setRecommendationError('');
-                }}
-                className="text-stone-400 hover:text-stone-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Appointment Details */}
-            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs text-indigo-600 font-semibold mb-1">PATIENT</p>
-                  <p className="text-sm font-bold text-stone-800">{aiScheduleAppointment.patient_name}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-indigo-600 font-semibold mb-1">REQUESTED THERAPY</p>
-                  <p className="text-sm font-bold text-stone-800">{aiScheduleAppointment.therapy_type}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-indigo-600 font-semibold mb-1">PREFERRED DATE</p>
-                  <p className="text-sm font-bold text-stone-800">{aiScheduleAppointment.preferred_date}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-indigo-600 font-semibold mb-1">PREFERRED TIME</p>
-                  <p className="text-sm font-bold text-stone-800">{aiScheduleAppointment.preferred_time}</p>
-                </div>
-              </div>
-              {aiScheduleAppointment.reason_for_visit && (
-                <div className="mt-4 pt-4 border-t border-indigo-200">
-                  <p className="text-xs text-indigo-600 font-semibold mb-1">PATIENT'S REASON</p>
-                  <p className="text-sm text-stone-700">{aiScheduleAppointment.reason_for_visit}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Recommended Therapies */}
-            <div className="mb-6">
-              <h3 className="text-lg font-bold text-stone-800 mb-3">AI-Recommended Complementary Therapies</h3>
-              
-              {recommendationError && (
-                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-700 text-sm font-semibold mb-2">⚠️ Error loading recommendations:</p>
-                  <p className="text-red-600 text-sm whitespace-pre-wrap">{recommendationError}</p>
-                </div>
-              )}
-              
-              {loadingRecommendations ? (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
-                </div>
-              ) : recommendedTherapies.length === 0 ? (
-                <p className="text-stone-500 text-sm py-4">{recommendationError ? 'No recommendations available due to the error above.' : 'No recommendations available yet.'}</p>
-              ) : (
-                <div className="space-y-3">
-                  {recommendedTherapies.map((therapy, idx) => (
-                    <div key={idx} className="border border-stone-200 rounded-lg p-4 hover:bg-stone-50 transition">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <p className="font-bold text-stone-800">{therapy.name}</p>
-                          <p className="text-xs text-stone-500 mt-1">{therapy.category} • {therapy.duration_minutes} min</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-lg font-bold text-indigo-600">{therapy.score}</p>
-                          <p className="text-xs text-indigo-500">score</p>
-                        </div>
-                      </div>
-                      <p className="text-sm text-stone-600 bg-stone-50 rounded px-2 py-1">
-                        ✓ {therapy.reason}
-                      </p>
-                      {therapy.type && (
-                        <p className="text-xs mt-2 text-stone-500">
-                          <span className="inline-block px-2 py-0.5 rounded-full bg-stone-100 mr-1">
-                            {therapy.type.replace('-', ' ').toUpperCase()}
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowAiSchedule(false);
-                  setAiScheduleAppointment(null);
-                  setRecommendationError('');
-                }}
-                className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 font-semibold rounded-lg hover:bg-stone-50 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // Navigate to Scheduling page with appointment data
-                  navigate('/scheduling', { state: { appointmentId: aiScheduleAppointment.id, patientId: aiScheduleAppointment.patient_id, therapyType: aiScheduleAppointment.therapy_type } });
-                  setShowAiSchedule(false);
-                }}
-                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition"
-              >
-                Go to Scheduling & Proceed
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

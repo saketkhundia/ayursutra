@@ -1,8 +1,33 @@
 import { Router, Request, Response } from 'express';
 import db, { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
-import { sendNotification } from '../services/notification-service';
+import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitSessionUpdate, emitSessionCreated, emitDashboardRefresh, emitTherapyProgressRefresh, emitDoctorAppointmentRequest, emitTreatmentPlanCreated } from '../services/realtime';
+
+async function sendSessionMessage(session: any, senderId: string, receiverId: string, content: string, messageType: string) {
+  try {
+    const messageId = uuidv4();
+    const conversationId = [receiverId, senderId].sort().join('_');
+    const now = new Date().toISOString();
+    await collections.messages().doc(messageId).set({
+      id: messageId,
+      conversation_id: conversationId,
+      sender_id: senderId,
+      receiver_id: receiverId,
+      content,
+      message_type: messageType,
+      created_at: now,
+      read: false,
+    });
+    await collections.conversations().doc(conversationId).set({
+      last_message: content,
+      last_message_at: now,
+      last_message_from: senderId,
+    }, { merge: true });
+  } catch (err) {
+    console.warn('[Sessions] Could not send message:', err);
+  }
+}
 
 const router = Router();
 
@@ -51,6 +76,62 @@ async function enrichSession(s: any) {
   return s;
 }
 
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number);
+  const total = h * 60 + m + minutes;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+async function validatePractitionerSlot(
+  practitioner_id: string,
+  scheduled_date: string,
+  scheduled_time: string,
+  duration_minutes: number,
+  requireAvailability = false,
+  ignoreSessionId?: string
+) {
+  const dayOfWeek = new Date(`${scheduled_date}T12:00:00`).getDay();
+  if (Number.isNaN(dayOfWeek)) {
+    return { ok: false, error: 'Invalid scheduled date' };
+  }
+
+  const requestedEnd = addMinutesToTime(scheduled_time, duration_minutes);
+  if (requireAvailability) {
+    const availSnap = await collections.practitionerAvailability()
+      .where('practitioner_id', '==', practitioner_id)
+      .where('day_of_week', '==', dayOfWeek)
+      .get();
+
+    const matchingAvailability = queryToArray(availSnap).some((av: any) =>
+      scheduled_time >= av.start_time && requestedEnd <= av.end_time
+    );
+
+    if (!matchingAvailability) {
+      return { ok: false, error: 'Selected slot does not match doctor availability' };
+    }
+  }
+
+  const conflictSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', practitioner_id)
+    .where('scheduled_date', '==', scheduled_date)
+    .get();
+
+  const activeConflicts = conflictSnap.docs.filter(d => {
+    if (ignoreSessionId && d.id === ignoreSessionId) return false;
+    return ['pending', 'scheduled', 'in-progress'].includes(d.data().status);
+  });
+
+  for (const cDoc of activeConflicts) {
+    const c = cDoc.data();
+    const conflictEnd = addMinutesToTime(c.scheduled_time, c.duration_minutes || 60);
+    if (scheduled_time < conflictEnd && requestedEnd > c.scheduled_time) {
+      return { ok: false, error: 'Scheduling conflict: practitioner is not available at this time' };
+    }
+  }
+
+  return { ok: true };
+}
+
 // Get all sessions (with optional filters)
 router.get('/', async (req: Request, res: Response) => {
   const { date, status, patient_id, practitioner_id } = req.query;
@@ -95,31 +176,11 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   const {
     treatment_plan_id, therapy_type_id, patient_id, practitioner_id,
-    scheduled_date, scheduled_time, duration_minutes, is_ml_generated
+    scheduled_date, scheduled_time, duration_minutes, is_ml_generated, auto_start_therapy
   } = req.body;
 
   if (!treatment_plan_id || !therapy_type_id || !patient_id || !practitioner_id || !scheduled_date || !scheduled_time) {
     return res.status(400).json({ error: 'All required fields must be provided' });
-  }
-
-  // Check for scheduling conflicts (only for non-ML sessions)
-  if (!is_ml_generated) {
-    const conflictSnap = await collections.therapySessions()
-      .where('practitioner_id', '==', practitioner_id)
-      .where('scheduled_date', '==', scheduled_date).get();
-    const activeConflicts = conflictSnap.docs.filter(d => ['scheduled', 'in-progress'].includes(d.data().status));
-
-    const requestedStart = scheduled_time;
-    const reqDuration = duration_minutes || 60;
-    for (const cDoc of activeConflicts) {
-      const c = cDoc.data();
-      const cStart = c.scheduled_time;
-      const cEnd = addMinutesToTime(cStart, c.duration_minutes);
-      const rEnd = addMinutesToTime(requestedStart, reqDuration);
-      if (requestedStart < cEnd && rEnd > cStart) {
-        return res.status(409).json({ error: 'Scheduling conflict: practitioner is not available at this time' });
-      }
-    }
   }
 
   const ttDoc = await collections.therapyTypes().doc(therapy_type_id).get();
@@ -128,9 +189,21 @@ router.post('/', async (req: Request, res: Response) => {
   const finalDuration = duration_minutes || therapy?.duration_minutes || 60;
   const now = new Date().toISOString();
 
-  // PHASE 1: If not ML-generated, create as 'pending' (awaiting doctor approval)
-  // If ML-generated, create as 'scheduled' (doctor already approved the treatment plan)
-  const initialStatus = is_ml_generated ? 'scheduled' : 'pending';
+  const slotValidation = await validatePractitionerSlot(
+    practitioner_id,
+    scheduled_date,
+    scheduled_time,
+    finalDuration,
+    Boolean(is_ml_generated)
+  );
+  if (!slotValidation.ok) {
+    return res.status(409).json({ error: slotValidation.error });
+  }
+
+  // AI bookings are accepted automatically only after the slot matches doctor availability.
+  const initialStatus = is_ml_generated
+    ? (auto_start_therapy ? 'in-progress' : 'scheduled')
+    : 'pending';
 
   await collections.therapySessions().doc(id).set({
     treatment_plan_id, therapy_type_id, patient_id, practitioner_id,
@@ -138,7 +211,8 @@ router.post('/', async (req: Request, res: Response) => {
     status: initialStatus, 
     requested_at: is_ml_generated ? null : now,  // Track when patient requested
     confirmed_at: is_ml_generated ? now : null,  // ML sessions are pre-confirmed
-    actual_start_time: null, actual_end_time: null,
+    actual_start_time: initialStatus === 'in-progress' ? now : null,
+    actual_end_time: null,
     session_notes: null, progress_score: null, ai_confidence: null,
     created_at: now, updated_at: now,
     is_ml_generated: is_ml_generated || false,
@@ -147,7 +221,7 @@ router.post('/', async (req: Request, res: Response) => {
   // Only auto-create reminder notifications if scheduled (not pending)
   if (initialStatus === 'scheduled') {
     if (therapy?.pre_procedure_instructions) {
-      await sendNotification({
+      await notifyPatient({
         patient_id, session_id: id, type: 'pre-procedure',
         title: `Pre-procedure: ${therapy.name}`,
         message: therapy.pre_procedure_instructions,
@@ -155,13 +229,23 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
     if (therapy?.post_procedure_instructions) {
-      await sendNotification({
+      await notifyPatient({
         patient_id, session_id: id, type: 'post-procedure',
         title: `Post-procedure: ${therapy.name}`,
         message: therapy.post_procedure_instructions,
         scheduled_for: `${scheduled_date} ${scheduled_time}`,
       });
     }
+  }
+
+  if (initialStatus === 'in-progress') {
+    const practitioner = docToObj(await collections.practitioners().doc(practitioner_id).get());
+    await notifyPatient({
+      patient_id, session_id: id, type: 'therapy_started',
+      title: 'Therapy Session Started',
+      message: `Your ${therapy?.name || 'therapy'} session with Dr. ${practitioner?.name || 'your practitioner'} has started.`,
+      scheduled_for: `${scheduled_date} ${scheduled_time}`,
+    });
   }
 
   const session = docToObj(await collections.therapySessions().doc(id).get());
@@ -273,7 +357,42 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 
   const session = docToObj(await collections.therapySessions().doc(req.params.id).get());
 
-  // On session completion, send post-procedure follow-up notification
+  // On session cancellation, notify & message patient with reason
+  if (status === 'cancelled' && session.patient_id) {
+    try {
+      const practitionerDoc = await collections.practitioners().doc(session.practitioner_id).get();
+      const practitionerName = practitionerDoc.exists ? practitionerDoc.data()?.name : 'the clinic';
+      const reason = session_notes || 'No specific reason provided';
+      const patientMsg = `Your ${session.therapy_name || 'therapy'} session scheduled on ${session.scheduled_date} at ${session.scheduled_time} has been cancelled.\n\nReason: ${reason}\n\nPlease contact ${practitionerName} if you have any questions.`;
+      const doctorMsg = `${session.patient_name || 'Patient'}'s ${session.therapy_name || 'therapy'} session on ${session.scheduled_date} at ${session.scheduled_time} has been cancelled.\n\nReason: ${reason}`;
+
+      await notifyPatient({
+        patient_id: session.patient_id,
+        session_id: req.params.id,
+        type: 'alert',
+        title: 'Therapy Session Cancelled',
+        message: patientMsg,
+      });
+      await notifyDoctors({
+        title: 'Session Cancelled',
+        message: doctorMsg,
+        session_id: req.params.id,
+        type: 'alert',
+      });
+
+      await sendSessionMessage(
+        session,
+        session.practitioner_id,
+        session.patient_id,
+        patientMsg,
+        'system_cancellation'
+      );
+    } catch (notifErr) {
+      console.warn('[Sessions] Could not send cancellation notification:', notifErr);
+    }
+  }
+
+  // On session completion, send post-procedure follow-up notification and message
   if (status === 'completed' && session.patient_id && session.therapy_type_id) {
     try {
       const ttDoc = await collections.therapyTypes().doc(session.therapy_type_id).get();
@@ -282,7 +401,7 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       const practitionerName = prDoc.exists ? prDoc.data()?.name : 'your practitioner';
 
       if (therapy?.post_procedure_instructions) {
-        await sendNotification({
+        await notifyPatient({
           patient_id: session.patient_id,
           session_id: req.params.id,
           type: 'post-procedure',
@@ -292,13 +411,28 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
       }
 
       // Always send a completion notification
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         session_id: req.params.id,
         type: 'reminder',
         title: `Session Complete — ${therapy?.name || 'Therapy'}`,
         message: `Your therapy session with Dr. ${practitionerName} has been completed. Please submit your feedback to help us track your progress.`,
       });
+      await notifyDoctors({
+        title: `Session Complete — ${therapy?.name || 'Therapy'}`,
+        message: `${session.patient_name || 'Patient'}'s ${therapy?.name || 'therapy'} session with you has been marked complete.${session_notes ? `\n\nNotes: ${session_notes}` : ''}`,
+        session_id: req.params.id,
+        type: 'reminder',
+      });
+
+      const notes = session_notes ? `\n\nSession notes: ${session_notes}` : '';
+      await sendSessionMessage(
+        session,
+        session.practitioner_id,
+        session.patient_id,
+        `Your ${therapy?.name || 'therapy'} session with Dr. ${practitionerName} has been marked complete.${notes}`,
+        'system_completion'
+      );
     } catch (notifErr) {
       console.warn('[Sessions] Could not send completion notifications:', notifErr);
     }
@@ -357,14 +491,20 @@ router.patch('/:id/start', async (req: Request, res: Response) => {
     const practitionerName = practitionerDoc.data()?.name || 'Doctor';
     const therapyName = therapyTypeDoc?.data()?.name || updatedSession.therapy_name || 'Therapy';
 
-    // Notify patient that therapy has started
+    // Notify patient and doctor that therapy has started
     try {
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         session_id: sessionId,
         type: 'therapy_started',
         title: 'Therapy Session Started',
         message: `Your ${therapyName} therapy session with Dr. ${practitionerName} has started. Please follow the guidance provided.`,
+      });
+      await notifyDoctors({
+        title: 'Therapy Session Started',
+        message: `${therapyName} therapy for ${patientName} has started.`,
+        session_id: sessionId,
+        type: 'therapy_started',
       });
     } catch (notifError) {
       console.warn('[Sessions] Could not send start notification:', notifError);
@@ -478,7 +618,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
     const ttDoc = await collections.therapyTypes().doc(session.therapy_type_id).get();
     const therapy = ttDoc.exists ? ttDoc.data() : null;
     if (therapy?.pre_procedure_instructions) {
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         session_id: sessionId,
         type: 'pre-procedure',
@@ -488,7 +628,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
       });
     }
     if (therapy?.post_procedure_instructions) {
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         session_id: sessionId,
         type: 'post-procedure',
@@ -550,7 +690,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
 
       // PHASE 5: Notify patient of approved appointment and treatment plan
       const practitioner = docToObj(await collections.practitioners().doc(session.practitioner_id).get());
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         session_id: sessionId,
         type: 'appointment_confirmed',
@@ -559,7 +699,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
         scheduled_for: `${session.scheduled_date} ${session.scheduled_time}`,
       });
 
-      await sendNotification({
+      await notifyPatient({
         patient_id: session.patient_id,
         type: 'treatment_plan_created',
         title: 'Treatment Plan Ready',
@@ -618,7 +758,7 @@ router.put('/:id/reject', async (req: Request, res: Response) => {
 
   // Notify patient of rejection
   const practitioner = docToObj(await collections.practitioners().doc(session.practitioner_id).get());
-  await sendNotification({
+  await notifyPatient({
     patient_id: session.patient_id,
     session_id: sessionId,
     type: 'appointment_rejected',
@@ -646,11 +786,27 @@ router.get('/doctor/:practitioner_id/pending', async (req: Request, res: Respons
   res.json(sessions);
 });
 
-// Helper: add minutes to HH:MM time string
-function addMinutesToTime(time: string, minutes: number): string {
-  const [h, m] = time.split(':').map(Number);
-  const total = h * 60 + m + minutes;
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-}
+/**
+ * DELETE /sessions/clear - Clear session history
+ */
+router.delete('/clear', async (req: Request, res: Response) => {
+  try {
+    const { practitioner_id, patient_id } = req.query;
+    let query: FirebaseFirestore.Query = collections.therapySessions();
+    if (practitioner_id) query = query.where('practitioner_id', '==', practitioner_id as string);
+    if (patient_id) query = query.where('patient_id', '==', patient_id as string);
+
+    const snap = await query.get();
+    const batch = db.batch();
+    snap.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    emitDashboardRefresh();
+    res.json({ message: 'Session history cleared', count: snap.size });
+  } catch (error: any) {
+    console.error('[Sessions] Error clearing sessions:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 export default router;

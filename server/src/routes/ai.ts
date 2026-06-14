@@ -1,12 +1,12 @@
 /**
  * ATASS AI Routes
- * Proxy to Python ML service + fallback local scheduling.
+ * Proxy to Python ML service.
  * Handles: Smart scheduling, therapy recommendations, treatment insights.
  */
 import { Router, Request, Response } from 'express';
 import db, { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
-import { sendNotification } from '../services/notification-service';
+import { notifyPatient } from '../services/notification-service';
 import { emitSessionCreated, emitDashboardRefresh } from '../services/realtime';
 
 const router = Router();
@@ -126,24 +126,12 @@ router.post('/schedule/suggest', async (req: Request, res: Response) => {
 
     res.json(result);
   } catch (err: any) {
-    console.error('[AI Suggest] ML service unavailable, using fallback:', err.message);
-    const startDate = req.body.start_date || req.body.preferred_date || new Date().toISOString().split('T')[0];
-    const fallbackSlots = [];
-    const times = ['08:00', '09:00', '10:00', '11:00', '14:00', '15:00'];
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(startDate + 'T00:00:00');
-      date.setDate(date.getDate() + d);
-      if (isNaN(date.getTime())) continue;
-      if (date.getDay() === 0) continue;
-      for (const t of times) {
-        fallbackSlots.push({
-          date: date.toISOString().split('T')[0],
-          time: t, score: 50 + Math.random() * 30, confidence: 0.5,
-          reasons: ['Available slot (AI service offline)'],
-        });
-      }
-    }
-    res.json({ slots: fallbackSlots.slice(0, 21), total_options: fallbackSlots.length, fallback: true });
+    console.error('[AI Suggest] ML service unavailable:', err.message);
+    res.status(503).json({
+      error: 'AI scheduling analysis is unavailable. Start or configure the ML service, then try again.',
+      details: err.message,
+      ai_available: false,
+    });
   }
 });
 
@@ -216,7 +204,7 @@ router.post('/schedule/auto', async (req: Request, res: Response) => {
         created_at: now, updated_at: now,
       });
 
-      await sendNotification({
+      await notifyPatient({
         patient_id, session_id: id, type: 'reminder',
         title: 'AI-Scheduled Session',
         message: `${therapy.name} session on ${s.date} at ${s.time} (AI confidence: ${Math.round(s.confidence * 100)}%).`,

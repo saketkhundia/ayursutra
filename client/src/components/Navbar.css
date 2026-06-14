@@ -1,0 +1,204 @@
+/* ============= AYURSUTRA NAVBAR ============= */
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 56px;
+  background-color: var(--bg-header);
+  border-bottom: 1px solid var(--border-color);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+}
+
+/* Inner container */
+.navbar-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* ---------- LOGO ---------- */
+.navbar-logo {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: #1C1C1C;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.navbar-logo .accent {
+  color: #4E9A6F;
+}
+
+/* ---------- NAV LINKS ---------- */
+.navbar-links {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0 0 0 40px;
+  padding: 0;
+}
+
+.navbar-link {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  color: #5A5550;
+  padding: 8px 14px;
+  border-radius: 9999px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+  border: 1px solid transparent;
+}
+
+.navbar-link:hover {
+  background-color: #F7F5F0;
+  color: #1C1C1C;
+}
+
+.navbar-link.active {
+  background-color: #EDF4EF;
+  color: #4E9A6F;
+  font-weight: 500;
+  border: 1px solid #C5DDD0;
+}
+
+.navbar-link svg {
+  display: none; /* Hide icons in main nav per design */
+}
+
+.navbar-link .badge {
+  margin-left: 6px;
+  background: #4E9A6F;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 9999px;
+}
+
+/* ---------- RIGHT SECTION ---------- */
+.navbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ---------- SIGN OUT ---------- */
+.navbar-signout {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  font-size: 13px;
+  color: #7A7570;
+  background: transparent;
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.navbar-signout:hover {
+  color: #1C1C1C;
+}
+
+.navbar-signout svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- AVATAR ---------- */
+.navbar-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: #7A7570;
+  transition: color 0.2s;
+  text-decoration: none;
+}
+
+.navbar-avatar:hover {
+  color: #4E9A6F;
+}
+
+.navbar-avatar svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* ---------- MOBILE ---------- */
+.navbar-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #1C1C1C;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+@media (max-width: 900px) {
+  .navbar-links {
+    margin-left: 20px;
+  }
+  .navbar-link {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 768px) {
+  .navbar-links, .navbar-right {
+    display: none;
+  }
+  .navbar-hamburger {
+    display: flex;
+  }
+}
+
+.navbar-mobile-dropdown {
+  display: none;
+  position: fixed;
+  top: 56px;
+  left: 0;
+  width: 100%;
+  background: #fff;
+  border-bottom: 1px solid #E8E3DA;
+  z-index: 999;
+  flex-direction: column;
+  padding: 12px;
+}
+
+.navbar-mobile-dropdown.open {
+  display: flex;
+}
+
+.navbar-mobile-dropdown .navbar-link {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: none;
+}
+
+.navbar-mobile-dropdown .navbar-link svg {
+  display: block; /* Show icons in mobile dropdown */
+}

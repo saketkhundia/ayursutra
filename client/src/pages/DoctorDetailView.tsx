@@ -57,7 +57,11 @@ export default function DoctorDetailView() {
         duration_minutes: bookingData.duration_minutes,
       };
 
-      await api.bookAppointment(appointmentData);
+      const result = await api.bookAppointment(appointmentData);
+      if (result.status === 'rejected') {
+        setBookingError(result.rejection_reason || 'That time is not available. Please book another time from the doctor availability.');
+        return;
+      }
       setBookingSuccess(true);
 
       // Reset form and close modal after success
@@ -141,7 +145,6 @@ export default function DoctorDetailView() {
       .finally(() => setSlotsLoading(false));
   }, [bookingData.preferred_date, id]);
 
-  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const formatSlotTime = (time: string) => {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, WifiOff } from 'lucide-react';
+import { Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, WifiOff, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { api } from '../api';
 import { useSocket } from '../hooks/useSocket';
@@ -10,6 +10,17 @@ export default function TherapyTracking() {
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { connected, on, joinRoom } = useSocket();
+
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [actionSession, setActionSession] = useState<any>(null);
+  const [actionNotes, setActionNotes] = useState('');
+  const [cancelReason, setCancelReason] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const [showCancelPlanModal, setShowCancelPlanModal] = useState(false);
+  const [cancelPlanTarget, setCancelPlanTarget] = useState<any>(null);
+  const [cancelPlanReason, setCancelPlanReason] = useState('');
 
   const loadData = () => {
     Promise.all([
@@ -37,6 +48,54 @@ export default function TherapyTracking() {
   const activeSessions = sessions.filter(s => s.status === 'in-progress');
   const todaySessions = sessions.filter(s => s.scheduled_date === new Date().toISOString().split('T')[0]);
   const completedSessions = sessions.filter(s => s.status === 'completed');
+
+  const handleMarkComplete = async () => {
+    if (!actionSession) return;
+    setIsProcessing(true);
+    try {
+      await api.updateSessionStatus(actionSession.id, { status: 'completed', session_notes: actionNotes });
+      setSessions(prev => prev.map(s => s.id === actionSession.id ? { ...s, status: 'completed', session_notes: actionNotes, actual_end_time: new Date().toISOString() } : s));
+      setShowCompleteModal(false);
+      setActionSession(null);
+      setActionNotes('');
+    } catch (err: any) {
+      alert('Failed to mark session completed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelSession = async () => {
+    if (!actionSession || !cancelReason.trim()) return;
+    setIsProcessing(true);
+    try {
+      await api.updateSessionStatus(actionSession.id, { status: 'cancelled', session_notes: cancelReason });
+      setSessions(prev => prev.map(s => s.id === actionSession.id ? { ...s, status: 'cancelled', session_notes: cancelReason } : s));
+      setShowCancelModal(false);
+      setActionSession(null);
+      setCancelReason('');
+    } catch (err: any) {
+      alert('Failed to cancel session: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCancelPlan = async () => {
+    if (!cancelPlanTarget || !cancelPlanReason.trim()) return;
+    setIsProcessing(true);
+    try {
+      await api.updateTreatmentPlan(cancelPlanTarget.id, { status: 'cancelled', notes: cancelPlanReason });
+      setPlans(prev => prev.map(p => p.id === cancelPlanTarget.id ? { ...p, status: 'cancelled', notes: cancelPlanReason } : p));
+      setShowCancelPlanModal(false);
+      setCancelPlanTarget(null);
+      setCancelPlanReason('');
+    } catch (err: any) {
+      alert('Failed to cancel plan: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // Session progress data per plan
   const planProgress = plans.map(plan => {
@@ -121,6 +180,20 @@ export default function TherapyTracking() {
                   </div>
                   <p className="text-xs text-stone-500 mt-1">{s.duration_minutes} min session</p>
                 </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => { setActionSession(s); setActionNotes(''); setShowCompleteModal(true); }}
+                    className="flex-1 text-xs flex items-center justify-center gap-1 bg-herb-500 hover:bg-herb-600 text-white font-semibold py-1.5 px-2 rounded-lg transition"
+                  >
+                    <CheckCircle className="w-3 h-3" /> Done
+                  </button>
+                  <button
+                    onClick={() => { setActionSession(s); setCancelReason(''); setShowCancelModal(true); }}
+                    className="flex-1 text-xs flex items-center justify-center gap-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-1.5 px-2 rounded-lg transition"
+                  >
+                    <XCircle className="w-3 h-3" /> Cancel
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -164,9 +237,19 @@ export default function TherapyTracking() {
                     <p className="text-xs text-stone-400 mt-1">{plan.start_date} → {plan.end_date}</p>
                   </div>
                   <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    plan.status === 'active' ? 'bg-herb-100 text-herb-800' : 'bg-stone-100 text-stone-600'
+                    plan.status === 'active' ? 'bg-herb-100 text-herb-800' : plan.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-stone-100 text-stone-600'
                   }`}>{plan.status}</span>
                 </div>
+                {plan.status === 'active' && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => { setCancelPlanTarget(plan); setCancelPlanReason(''); setShowCancelPlanModal(true); }}
+                      className="text-xs flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-2.5 rounded-lg transition"
+                    >
+                      <XCircle className="w-3 h-3" /> Cancel Plan
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                   <div className="flex-1 h-2.5 bg-stone-200 rounded-full overflow-hidden">
                     <div className="h-full bg-gradient-to-r from-saffron-500 to-herb-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
@@ -210,6 +293,32 @@ export default function TherapyTracking() {
                   <p className="text-[10px] text-stone-400 mt-0.5">Score: {s.progress_score}%</p>
                 </div>
               )}
+              {s.status === 'in-progress' && (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setActionSession(s); setActionNotes(''); setShowCompleteModal(true); }}
+                    className="flex-1 text-xs flex items-center justify-center gap-1 bg-herb-500 hover:bg-herb-600 text-white font-semibold py-1.5 px-2 rounded-lg transition"
+                  >
+                    <CheckCircle className="w-3 h-3" /> Complete
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setActionSession(s); setCancelReason(''); setShowCancelModal(true); }}
+                    className="flex-1 text-xs flex items-center justify-center gap-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-1.5 px-2 rounded-lg transition"
+                  >
+                    <XCircle className="w-3 h-3" /> Cancel
+                  </button>
+                </div>
+              )}
+              {s.status === 'scheduled' && (
+                <div className="mt-3">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setActionSession(s); setCancelReason(''); setShowCancelModal(true); }}
+                    className="w-full text-xs flex items-center justify-center gap-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-1.5 px-2 rounded-lg transition"
+                  >
+                    <Trash2 className="w-3 h-3" /> Cancel / Remove
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -244,6 +353,142 @@ export default function TherapyTracking() {
               <p className="text-sm text-herb-700 mt-1 whitespace-pre-line">{selectedSession.post_procedure_instructions}</p>
             </div>
           )}
+
+          {selectedSession.status === 'in-progress' && (
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={() => { setActionSession(selectedSession); setActionNotes(''); setShowCompleteModal(true); }}
+                className="flex-1 flex items-center justify-center gap-2 bg-herb-500 hover:bg-herb-600 text-white font-semibold py-2.5 px-4 rounded-lg transition text-sm"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Mark Completed
+              </button>
+              <button
+                onClick={() => { setActionSession(selectedSession); setCancelReason(''); setShowCancelModal(true); }}
+                className="flex-1 flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white font-semibold py-2.5 px-4 rounded-lg transition text-sm"
+              >
+                <XCircle className="w-4 h-4" />
+                Cancel Session
+              </button>
+            </div>
+          )}
+
+          {(selectedSession.status === 'scheduled') && (
+            <div className="mt-4">
+              <button
+                onClick={() => { setActionSession(selectedSession); setCancelReason(''); setShowCancelModal(true); }}
+                className="w-full flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white font-semibold py-2.5 px-4 rounded-lg transition text-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                Cancel / Remove Session
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Mark Complete Modal */}
+      {showCompleteModal && actionSession && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h2 className="text-2xl font-bold text-stone-800 mb-4">Mark Session Completed</h2>
+            <p className="text-stone-600 mb-4">
+              Confirm that <strong>{actionSession.therapy_name}</strong> for <strong>{actionSession.patient_name}</strong> is complete.
+            </p>
+
+            <textarea
+              placeholder="Add session notes or observations (optional)"
+              value={actionNotes}
+              onChange={(e) => setActionNotes(e.target.value)}
+              className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-herb-500 focus:border-transparent resize-none h-24 mb-4"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCompleteModal(false); setActionSession(null); setActionNotes(''); }}
+                className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 font-semibold rounded-lg hover:bg-stone-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMarkComplete}
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2 bg-herb-500 hover:bg-herb-600 disabled:bg-herb-300 text-white font-semibold rounded-lg transition disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : 'Confirm Complete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Plan Modal */}
+      {showCancelPlanModal && cancelPlanTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h2 className="text-2xl font-bold text-stone-800 mb-4">Cancel Treatment Plan</h2>
+            <p className="text-stone-600 mb-4">
+              This will cancel <strong>{cancelPlanTarget.plan_name}</strong> for <strong>{cancelPlanTarget.patient_name}</strong>.
+            </p>
+
+            <textarea
+              placeholder="Provide a reason for cancellation"
+              value={cancelPlanReason}
+              onChange={(e) => setCancelPlanReason(e.target.value)}
+              className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none h-24 mb-4"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCancelPlanModal(false); setCancelPlanTarget(null); setCancelPlanReason(''); }}
+                className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 font-semibold rounded-lg hover:bg-stone-50 transition"
+              >
+                Keep Plan
+              </button>
+              <button
+                onClick={handleCancelPlan}
+                disabled={isProcessing || !cancelPlanReason.trim()}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white font-semibold rounded-lg transition disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : 'Cancel Plan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Session Modal */}
+      {showCancelModal && actionSession && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+            <h2 className="text-2xl font-bold text-stone-800 mb-4">Cancel Therapy Session</h2>
+            <p className="text-stone-600 mb-4">
+              This will cancel <strong>{actionSession.therapy_name}</strong> for <strong>{actionSession.patient_name}</strong> and notify the patient.
+            </p>
+
+            <textarea
+              placeholder="Provide a reason for cancellation (sent to patient)"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              className="w-full px-4 py-3 border border-stone-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none h-24 mb-4"
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCancelModal(false); setActionSession(null); setCancelReason(''); }}
+                className="flex-1 px-4 py-2 border border-stone-300 text-stone-700 font-semibold rounded-lg hover:bg-stone-50 transition"
+              >
+                Keep Session
+              </button>
+              <button
+                onClick={handleCancelSession}
+                disabled={isProcessing || !cancelReason.trim()}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white font-semibold rounded-lg transition disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : 'Cancel & Notify Patient'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

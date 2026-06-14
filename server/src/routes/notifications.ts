@@ -1,15 +1,20 @@
 import { Router, Request, Response } from 'express';
 import db, { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { getIO } from '../services/realtime';
 
 const router = Router();
 
 // Get notifications for a patient
 router.get('/', async (req: Request, res: Response) => {
-  const { patient_id, unread_only } = req.query;
+  const { patient_id, unread_only, role } = req.query;
   let query: FirebaseFirestore.Query = collections.notifications();
 
-  if (patient_id) query = query.where('patient_id', '==', patient_id as string);
+  if (role === 'doctor' && !patient_id) {
+    query = query.where('patient_id', '==', '');
+  } else if (patient_id) {
+    query = query.where('patient_id', '==', patient_id as string);
+  }
   if (unread_only === 'true') query = query.where('is_read', '==', 0);
 
   const snap = await query.get();
@@ -19,28 +24,46 @@ router.get('/', async (req: Request, res: Response) => {
 
 // Get unread count
 router.get('/unread-count', async (req: Request, res: Response) => {
-  const { patient_id } = req.query;
+  const { patient_id, role } = req.query;
   let query: FirebaseFirestore.Query = collections.notifications()
     .where('is_read', '==', 0);
-  if (patient_id) query = query.where('patient_id', '==', patient_id as string);
+  if (role === 'doctor' && !patient_id) {
+    query = query.where('patient_id', '==', '');
+  } else if (patient_id) {
+    query = query.where('patient_id', '==', patient_id as string);
+  }
   const snap = await query.get();
   res.json({ count: snap.size });
 });
 
 // Mark notification as read
 router.patch('/:id/read', async (req: Request<{id: string}>, res: Response) => {
-  await collections.notifications().doc(req.params.id).update({ is_read: 1 });
+  const notifDoc = await collections.notifications().doc(req.params.id).get();
+  if (!notifDoc.exists) return res.status(404).json({ error: 'Notification not found' });
+  await notifDoc.ref.update({ is_read: 1 });
+
+  const notif = notifDoc.data()!;
+  const io = getIO();
+  if (io) {
+    io.to('dashboard').emit('notification');
+    if (notif.patient_id) {
+      io.to(`patient:${notif.patient_id}`).emit('notification');
+    }
+  }
+
   res.json({ message: 'Notification marked as read' });
 });
 
 // Mark all as read — optionally filtered by patient
 router.patch('/read-all', async (req: Request, res: Response) => {
-  const { patient_id } = req.body;
+  const { patient_id, role } = req.body;
 
   let query: FirebaseFirestore.Query = collections.notifications()
     .where('is_read', '==', 0);
 
-  if (patient_id) {
+  if (role === 'doctor' && !patient_id) {
+    query = query.where('patient_id', '==', '');
+  } else if (patient_id) {
     query = query.where('patient_id', '==', patient_id);
   }
 
@@ -49,6 +72,14 @@ router.patch('/read-all', async (req: Request, res: Response) => {
   const batch = db.batch();
   snap.docs.forEach(doc => batch.update(doc.ref, { is_read: 1 }));
   await batch.commit();
+
+  const io = getIO();
+  if (io) {
+    io.to('dashboard').emit('notification');
+    if (patient_id) {
+      io.to(`patient:${patient_id}`).emit('notification');
+    }
+  }
 
   res.json({ message: 'All notifications marked as read', count: snap.size });
 });
@@ -97,6 +128,35 @@ router.put('/preferences/:patient_id', async (req: Request, res: Response) => {
 
   const updated = await snap.docs[0].ref.get();
   res.json({ id: updated.id, ...updated.data() });
+});
+
+// Clear all notifications (with role/patient_id filter)
+router.delete('/', async (req: Request, res: Response) => {
+  const { patient_id, role } = req.query;
+  let query: FirebaseFirestore.Query = collections.notifications();
+
+  if (role === 'doctor' && !patient_id) {
+    query = query.where('patient_id', '==', '');
+  } else if (patient_id) {
+    query = query.where('patient_id', '==', patient_id as string);
+  } else {
+    return res.status(400).json({ error: 'patient_id or role=doctor is required to clear notifications' });
+  }
+
+  const snap = await query.get();
+  const batch = db.batch();
+  snap.docs.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
+
+  const io = getIO();
+  if (io) {
+    io.to('dashboard').emit('notification');
+    if (patient_id) {
+      io.to(`patient:${patient_id}`).emit('notification');
+    }
+  }
+
+  res.json({ message: 'Notifications cleared', count: snap.size });
 });
 
 export default router;

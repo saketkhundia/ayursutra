@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import db, { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitTherapyProgressRefresh } from '../services/realtime';
 
 const router = Router();
@@ -76,12 +77,38 @@ router.put('/:id', async (req: Request, res: Response) => {
   const doc = await collections.treatmentPlans().doc(req.params.id as string).get();
   if (!doc.exists) return res.status(404).json({ error: 'Treatment plan not found' });
 
-  await collections.treatmentPlans().doc(req.params.id as string).update({
-    diagnosis, plan_name, start_date, end_date, status, notes,
-    updated_at: new Date().toISOString(),
-  });
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (diagnosis !== undefined) updates.diagnosis = diagnosis;
+  if (plan_name !== undefined) updates.plan_name = plan_name;
+  if (start_date !== undefined) updates.start_date = start_date;
+  if (end_date !== undefined) updates.end_date = end_date;
+  if (status !== undefined) updates.status = status;
+  if (notes !== undefined) updates.notes = notes;
+
+  await collections.treatmentPlans().doc(req.params.id as string).update(updates);
 
   const plan = docToObj(await collections.treatmentPlans().doc(req.params.id as string).get());
+
+  // Notify patient when plan is cancelled
+  if (status === 'cancelled' && plan.patient_id) {
+    try {
+      const prDoc = await collections.practitioners().doc(plan.practitioner_id).get();
+      const practitionerName = prDoc.exists ? prDoc.data()?.name : 'your doctor';
+      await notifyPatient({
+        patient_id: plan.patient_id,
+        type: 'alert',
+        title: 'Treatment Plan Cancelled',
+        message: `Your treatment plan "${plan.plan_name}" has been cancelled by Dr. ${practitionerName}.\n\nReason: ${notes || 'No reason provided'}`,
+      });
+      await notifyDoctors({
+        title: 'Treatment Plan Cancelled',
+        message: `Treatment plan "${plan.plan_name}" for ${plan.patient_name || 'patient'} has been cancelled.\n\nReason: ${notes || 'No reason provided'}`,
+      });
+    } catch (notifErr) {
+      console.warn('[TreatmentPlans] Could not send cancellation notification:', notifErr);
+    }
+  }
+
   emitTherapyProgressRefresh(plan.patient_id);
   res.json(plan);
 });

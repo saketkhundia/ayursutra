@@ -273,10 +273,17 @@ router.get('/conversations', async (req: Request, res: Response) => {
       ).values()
     );
 
-    // Get other user details for each conversation
+    // Get other user details for each conversation. Drop stale conversation
+    // records whose other participant was deleted or never created.
+    const hydratedConversations = [];
+
     for (const conv of uniqueConversations) {
       const otherUserId =
         conv.user1_id === userId ? conv.user2_id : conv.user1_id;
+
+      if (!otherUserId) {
+        continue;
+      }
 
       // Try to fetch as doctor or patient
       const doctorDoc = await collections
@@ -290,6 +297,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
           type: 'doctor',
           specialization: doctorDoc.data()?.specialization || '',
         };
+        hydratedConversations.push(conv);
       } else {
         const patientDoc = await collections
           .patients()
@@ -301,18 +309,19 @@ router.get('/conversations', async (req: Request, res: Response) => {
             name: patientDoc.data()?.name || 'Unknown',
             type: 'patient',
           };
+          hydratedConversations.push(conv);
         }
       }
     }
 
     // Sort by last_message_at (newest first)
-    uniqueConversations.sort(
+    hydratedConversations.sort(
       (a: any, b: any) =>
         new Date(b.last_message_at).getTime() -
         new Date(a.last_message_at).getTime()
     );
 
-    return res.json(uniqueConversations);
+    return res.json(hydratedConversations);
   } catch (err: any) {
     console.error('[GET /messages/conversations]', err.message);
     return res.status(500).json({ error: 'Failed to fetch conversations' });

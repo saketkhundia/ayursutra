@@ -26,7 +26,17 @@ const format = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
   winston.format.colorize({ all: false }),
   winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`
+    (info) => {
+      const { timestamp, level, message, ...meta } = info;
+      const details = Object.keys(meta).length > 0
+        ? ` ${JSON.stringify(meta, (_key, value) =>
+            value instanceof Error
+              ? { name: value.name, message: value.message, stack: value.stack }
+              : value
+          )}`
+        : '';
+      return `${timestamp} ${level}: ${message}${details}`;
+    }
   )
 );
 

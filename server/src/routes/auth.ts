@@ -224,6 +224,7 @@ router.post('/login/patient', validateRequest(loginSchema), async (req: Request,
 
     const snap = await collections.patients().where('email', '==', normalizedEmail).get();
     if (snap.empty) {
+      console.log(`[PATIENT LOGIN] No patient found for email: ${normalizedEmail}`);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -231,13 +232,17 @@ router.post('/login/patient', validateRequest(loginSchema), async (req: Request,
     const data = doc.data() as any;
 
     if (!data.password_hash) {
-      return res.status(401).json({ error: 'Account not set up for login' });
+      console.log(`[PATIENT LOGIN] Patient ${normalizedEmail} has no password_hash`);
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const valid = await bcrypt.compare(password, data.password_hash);
     if (!valid) {
+      console.log(`[PATIENT LOGIN] Password mismatch for patient: ${normalizedEmail}`);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+
+    console.log(`[PATIENT LOGIN] Successful login for patient: ${normalizedEmail}`);
 
     // Generate access and refresh tokens
     const accessToken = generateAccessToken({

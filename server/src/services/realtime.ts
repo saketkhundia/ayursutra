@@ -40,6 +40,11 @@ export function initializeRealtime(httpServer: HttpServer): Server {
       socket.join('dashboard');
     });
 
+    // Leave a room (cleanup on unmount)
+    socket.on('leave', (room: string) => {
+      socket.leave(room);
+    });
+
     socket.on('disconnect', () => {
       console.log(`[WS] Client disconnected: ${socket.id}`);
     });
@@ -78,10 +83,16 @@ export function emitSessionCreated(session: any) {
 
 export function emitNotification(notification: any) {
   if (!io) return;
-  io.to('dashboard').emit('notification:new', notification);
   if (notification.patient_id) {
+    console.log(`[WS] emitNotification -> patient:${notification.patient_id} | title="${notification.title}" | msg="${(notification.message || '').substring(0, 60)}"`);
     io.to(`patient:${notification.patient_id}`).emit('notification:new', notification);
   }
+}
+
+export function emitDoctorNotification(notification: any) {
+  if (!io) return;
+  console.log(`[WS] emitDoctorNotification -> dashboard | title="${notification.title}" | msg="${(notification.message || '').substring(0, 60)}"`);
+  io.to('dashboard').emit('notification:new', notification);
 }
 
 export function emitDashboardRefresh() {

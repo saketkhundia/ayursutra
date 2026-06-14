@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Plus, Clock, User, X, Zap, RefreshCw, Brain, Sparkles, CheckCircle, Stethoscope, Trash2, CheckSquare, ShieldCheck, LogIn, LogOut, Lock } from 'lucide-react';
+import { Calendar, Plus, Clock, User, X, Zap, RefreshCw, Stethoscope, Trash2, CheckSquare, ShieldCheck, LogIn, LogOut, Lock } from 'lucide-react';
 import { api, doctorAuth } from '../api';
 
 function DoctorAvailabilityRow({ practitioner }: { practitioner: any }) {
@@ -45,18 +45,15 @@ function DoctorAvailabilityRow({ practitioner }: { practitioner: any }) {
 export default function Scheduling() {
   const [activeTab, setActiveTab] = useState<'sessions' | 'availability'>('sessions');
   const [sessions, setSessions] = useState<any[]>([]);
-  const [patients, setPatients] = useState<any[]>([]);
   const [practitioners, setPractitioners] = useState<any[]>([]);
   const [therapyTypes, setTherapyTypes] = useState<any[]>([]);
   const [treatmentPlans, setTreatmentPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showAutoForm, setShowAutoForm] = useState(false);
-  const [showAiSchedule, setShowAiSchedule] = useState(false);
-  const [aiSlots, setAiSlots] = useState<any[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
   const [filterDate, setFilterDate] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [confirmClear, setConfirmClear] = useState(false);
   const [rescheduleId, setRescheduleId] = useState<string | null>(null);
   const [rescheduleData, setRescheduleData] = useState({ scheduled_date: '', scheduled_time: '' });
 
@@ -89,13 +86,6 @@ export default function Scheduling() {
     start_date: '', num_sessions: '5', frequency_days: '3', preferred_time: '09:00'
   });
 
-  const [aiForm, setAiForm] = useState({
-    patient_id: '', therapy_type_id: '', practitioner_id: '', preferred_date: '', num_slots: '5'
-  });
-
-  // AI Modal data loading states
-  const [aiModalLoading, setAiModalLoading] = useState(false);
-
   const loadData = () => {
     setLoading(true);
     const params: Record<string, string> = {};
@@ -104,13 +94,11 @@ export default function Scheduling() {
 
     Promise.all([
       api.getSessions(Object.keys(params).length ? params : undefined),
-      api.getPatients(),
       api.getPractitioners(),
       api.getTherapyTypes(),
       api.getTreatmentPlans(),
-    ]).then(([s, p, pr, tt, tp]) => {
+    ]).then(([s, pr, tt, tp]) => {
       setSessions(s);
-      setPatients(p);
       setPractitioners(pr);
       setTherapyTypes(tt);
       setTreatmentPlans(tp);
@@ -123,15 +111,13 @@ export default function Scheduling() {
   // Load data on component mount and when filters change
   useEffect(() => { loadData(); }, [filterDate, filterStatus]);
   
-  // Refresh patient/therapy/practitioner data frequently so AI Smart Schedule always has current data
+  // Refresh patient/therapy/practitioner data frequently so scheduling forms always have current data.
   useEffect(() => {
     const interval = setInterval(() => {
       Promise.all([
-        api.getPatients(),
         api.getPractitioners(),
         api.getTherapyTypes(),
-      ]).then(([p, pr, tt]) => {
-        setPatients(p);
+      ]).then(([pr, tt]) => {
         setPractitioners(pr);
         setTherapyTypes(tt);
       }).catch(err => console.error('Error refreshing data:', err));
@@ -174,6 +160,18 @@ export default function Scheduling() {
   const handleStatusChange = async (sessionId: string, status: string) => {
     await api.updateSessionStatus(sessionId, { status });
     loadData();
+  };
+
+  const handleClearSessions = async () => {
+    try {
+      const res = await api.clearSessions({ practitioner_id: doctorAuth.getDoctor()?.id });
+      setSessions([]);
+      setConfirmClear(false);
+      alert(res.message || 'Session history cleared');
+    } catch (err: any) {
+      console.error('Error clearing sessions:', err);
+      alert('Failed to clear history: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const handleStartTherapy = async (sessionId: string) => {
@@ -272,105 +270,6 @@ export default function Scheduling() {
     }
   };
 
-  const handleAiSuggest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setAiLoading(true);
-    try {
-      const result = await api.aiSuggestSlots({
-        patient_id: aiForm.patient_id,
-        therapy_type_id: aiForm.therapy_type_id,
-        practitioner_id: aiForm.practitioner_id,
-        start_date: aiForm.preferred_date,
-        num_days: Math.min(parseInt(aiForm.num_slots) * 2, 14), // Convert num_slots to num_days (2 days per slot)
-      });
-      setAiSlots(result.slots || result.suggestions || []);
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const openAiScheduleModal = async () => {
-    // Show loading immediately
-    setAiModalLoading(true);
-    setShowAiSchedule(true);
-    
-    try {
-      // Refresh data before opening modal to ensure fresh patient/therapy/practitioner lists
-      const [p, pr, tt, tp] = await Promise.all([
-        api.getPatients().catch(err => {
-          console.error('Error fetching patients:', err);
-          return patients;
-        }),
-        api.getPractitioners().catch(err => {
-          console.error('Error fetching practitioners:', err);
-          return practitioners;
-        }),
-        api.getTherapyTypes().catch(err => {
-          console.error('Error fetching therapy types:', err);
-          return therapyTypes;
-        }),
-        api.getTreatmentPlans().catch(err => {
-          console.error('Error fetching treatment plans:', err);
-          return treatmentPlans;
-        }),
-      ]);
-      
-      // Update all states with fresh data
-      if (p && p.length > 0) setPatients(p);
-      if (pr && pr.length > 0) setPractitioners(pr);
-      if (tt && tt.length > 0) setTherapyTypes(tt);
-      if (tp && tp.length > 0) setTreatmentPlans(tp);
-    } catch (error) {
-      console.error('Error refreshing modal data:', error);
-    } finally {
-      setAiModalLoading(false);
-    }
-  };
-
-  const handleBookAiSlot = async (slot: any) => {
-    // Find or suggest a treatment plan
-    let plan = treatmentPlans.find(p => p.patient_id === aiForm.patient_id);
-    
-    if (!plan) {
-      // If no plan found, try to use one with the selected practitioner
-      const prPlan = treatmentPlans.find(p => 
-        p.patient_id === aiForm.patient_id && 
-        (aiForm.practitioner_id === '' || p.practitioner_id === aiForm.practitioner_id)
-      );
-      
-      if (prPlan) {
-        plan = prPlan;
-      } else {
-        // Fallback: check if there's ANY plan for this patient
-        const anyPlan = treatmentPlans.find(p => p.patient_id === aiForm.patient_id);
-        if (anyPlan) {
-          plan = anyPlan;
-        } else {
-          alert('Please create a treatment plan for this patient first');
-          return;
-        }
-      }
-    }
-    
-    try {
-      await api.createSession({
-        treatment_plan_id: plan.id,
-        therapy_type_id: aiForm.therapy_type_id,
-        patient_id: aiForm.patient_id,
-        practitioner_id: aiForm.practitioner_id || plan.practitioner_id,
-        scheduled_date: slot.date,
-        scheduled_time: slot.time,
-      });
-      setAiSlots(prev => prev.filter(s => s !== slot));
-      loadData();
-      alert('✅ Session booked successfully!');
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
   const statusColors: Record<string, string> = {
     scheduled: 'bg-blue-100 text-blue-800',
     'in-progress': 'bg-amber-100 text-amber-800',
@@ -387,9 +286,20 @@ export default function Scheduling() {
           <p className="text-stone-500 mt-1">Schedule and manage therapy sessions</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={openAiScheduleModal} className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors font-medium text-sm">
-            <Brain className="w-4 h-4" /> AI Smart Schedule
-          </button>
+          {!confirmClear ? (
+            <button onClick={() => setConfirmClear(true)} className="inline-flex items-center gap-2 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg hover:bg-red-100 transition-colors font-medium text-sm border border-red-200">
+              <Trash2 className="w-4 h-4" /> Clear History
+            </button>
+          ) : (
+            <div className="flex gap-1 items-center">
+              <button onClick={handleClearSessions} className="inline-flex items-center gap-1.5 bg-red-600 text-white px-3 py-2.5 rounded-lg hover:bg-red-700 transition-colors font-medium text-xs">
+                Confirm Clear
+              </button>
+              <button onClick={() => setConfirmClear(false)} className="inline-flex items-center gap-1.5 bg-stone-100 text-stone-600 px-3 py-2.5 rounded-lg hover:bg-stone-200 transition-colors font-medium text-xs">
+                Cancel
+              </button>
+            </div>
+          )}
           <button onClick={() => setShowAutoForm(true)} className="inline-flex items-center gap-2 bg-herb-600 text-white px-4 py-2.5 rounded-lg hover:bg-herb-700 transition-colors font-medium text-sm">
             <Zap className="w-4 h-4" /> Auto-Schedule
           </button>
@@ -810,93 +720,6 @@ export default function Scheduling() {
                 <button type="submit" className="flex-1 px-4 py-2.5 bg-herb-600 text-white rounded-lg hover:bg-herb-700 font-medium text-sm">Auto-Schedule</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* AI Smart Schedule Modal */}
-      {showAiSchedule && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setShowAiSchedule(false); setAiSlots([]); }}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold flex items-center gap-2"><Brain className="w-5 h-5 text-indigo-600" />AI Smart Schedule</h2>
-              <button onClick={() => { setShowAiSchedule(false); setAiSlots([]); }} className="p-1 rounded-lg hover:bg-stone-100"><X className="w-5 h-5" /></button>
-            </div>
-            <p className="text-sm text-stone-500 mb-4">AI analyzes patient dosha, therapy history, and practitioner availability to suggest optimal time slots.</p>
-            <form onSubmit={handleAiSuggest} className="space-y-4 mb-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Patient *</label>
-                  <select required value={aiForm.patient_id} onChange={e => setAiForm({ ...aiForm, patient_id: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/40 text-sm">
-                    <option value="">
-                      {aiModalLoading ? 'Loading patients...' : patients.length === 0 ? 'No patients available' : 'Select patient...'}
-                    </option>
-                    {patients.map(p => <option key={p.id} value={p.id}>{p.name} {p.dosha_type ? `(${p.dosha_type})` : ''}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Therapy *</label>
-                  <select required value={aiForm.therapy_type_id} onChange={e => setAiForm({ ...aiForm, therapy_type_id: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/40 text-sm">
-                    <option value="">
-                      {aiModalLoading ? 'Loading therapies...' : therapyTypes.length === 0 ? 'No therapies available' : 'Select therapy...'}
-                    </option>
-                    {therapyTypes.map(t => <option key={t.id} value={t.id}>{t.name} {t.category ? `(${t.category})` : ''}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Practitioner</label>
-                  <select value={aiForm.practitioner_id} onChange={e => setAiForm({ ...aiForm, practitioner_id: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/40 text-sm">
-                    <option value="">
-                      {aiModalLoading ? 'Loading practitioners...' : practitioners.length === 0 ? 'Any' : 'Any'}
-                    </option>
-                    {practitioners.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Preferred Date</label>
-                  <input type="date" value={aiForm.preferred_date} onChange={e => setAiForm({ ...aiForm, preferred_date: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/40 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Slots</label>
-                  <input type="number" min="1" max="10" value={aiForm.num_slots} onChange={e => setAiForm({ ...aiForm, num_slots: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/40 text-sm" />
-                </div>
-              </div>
-              <button type="submit" disabled={aiLoading} className="w-full px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50">
-                {aiLoading ? <><div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Analyzing...</> : <><Sparkles className="w-4 h-4" /> Get AI Suggestions</>}
-              </button>
-            </form>
-
-            {aiSlots.length > 0 && (
-              <div>
-                <h3 className="text-sm font-medium text-stone-700 mb-3">Suggested Time Slots</h3>
-                <div className="space-y-3">
-                  {aiSlots.map((slot: any, i: number) => (
-                    <div key={i} className="flex items-center gap-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{slot.date} at {slot.time}</span>
-                          <span className="text-[10px] font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                            Score: {slot.score || slot.confidence || 'N/A'}
-                          </span>
-                        </div>
-                        {slot.reasons && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {slot.reasons.map((r: string, j: number) => (
-                              <span key={j} className="text-[10px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">{r}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button onClick={() => handleBookAiSlot(slot)} className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-herb-600 text-white rounded-lg hover:bg-herb-700 font-medium">
-                        <CheckCircle className="w-3 h-3" /> Book
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Stethoscope, User2, Leaf, ArrowRight } from 'lucide-react';
+import { Stethoscope, User2, ArrowRight } from 'lucide-react';
 import { userAuth } from '../api';
 
 export default function LoginSelect() {
@@ -13,58 +13,59 @@ export default function LoginSelect() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-earth-950 via-earth-900 to-earth-800 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-[#F7F5F0] flex flex-col items-center justify-center p-6 font-sans">
       {/* Logo */}
       <div className="text-center mb-12">
-        <div className="w-20 h-20 rounded-2xl bg-saffron-500 flex items-center justify-center mx-auto mb-5 shadow-2xl">
-          <Leaf className="w-11 h-11 text-white" />
-        </div>
-        <h1 className="text-5xl font-bold text-white mb-2 tracking-tight">ATASS</h1>
-        <p className="text-earth-300 text-lg">Ayurveda Therapy & Scheduling System</p>
+        <h1 className="text-[40px] font-bold text-[#1C1C1C] mb-2 tracking-tight">
+          Ayur<span className="text-[#4E9A6F]">Sutra</span>
+        </h1>
+        <p className="text-[#7A7570] text-lg">Ayurvedic Health & Therapy Platform</p>
       </div>
 
-      <p className="text-earth-200 text-xl text-center mb-10 max-w-md leading-relaxed">
-        Connect with certified Ayurveda practitioners for holistic healing and wellness
+      <p className="text-[#5A5550] text-xl text-center mb-12 max-w-md leading-relaxed">
+        Connect with certified practitioners for holistic healing and wellness.
       </p>
 
       {/* Role selection cards */}
-      <div className="flex flex-col sm:flex-row gap-5 w-full max-w-xl">
+      <div className="flex flex-col sm:flex-row gap-6 w-full max-w-2xl">
         <button
           type="button"
           onClick={() => navigate('/login/doctor')}
-          className="flex-1 group bg-white/10 hover:bg-saffron-500/20 border border-white/20 hover:border-saffron-400 rounded-2xl p-8 text-center transition-all duration-200 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-saffron-400 focus-visible:ring-offset-4 focus-visible:ring-offset-earth-950 sm:hover:scale-[1.01]"
+          className="flex-1 group bg-white border border-[#E8E3DA] hover:border-[#4E9A6F] rounded-2xl p-8 text-left transition-all duration-200 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4E9A6F]"
         >
-          <div className="w-16 h-16 rounded-2xl bg-saffron-500/20 group-hover:bg-saffron-500/30 flex items-center justify-center mx-auto mb-5 transition-colors">
-            <Stethoscope className="w-9 h-9 text-saffron-400" />
+          <div className="w-12 h-12 rounded-xl bg-[#EDF4EF] flex items-center justify-center mb-6">
+            <Stethoscope className="w-6 h-6 text-[#4E9A6F]" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-3">I'm a Doctor</h2>
-          <p className="text-earth-300 text-sm mb-6 leading-relaxed">
-            Manage patients, publish your specialization, and schedule Ayurveda treatments
+          <h2 className="text-2xl font-bold text-[#1C1C1C] mb-3">I'm a Practitioner</h2>
+          <p className="text-[#7A7570] text-sm mb-8 leading-relaxed">
+            Manage your clinic, consult with patients, and track therapy progress.
           </p>
-          <span className="inline-flex items-center gap-2 text-saffron-400 text-sm font-semibold">
-            Login or Register <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          <span className="inline-flex items-center gap-2 text-[#4E9A6F] text-sm font-semibold">
+            Get Started <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => navigate('/login/patient')}
-          className="flex-1 group bg-white/10 hover:bg-emerald-500/20 border border-white/20 hover:border-emerald-400 rounded-2xl p-8 text-center transition-all duration-200 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-4 focus-visible:ring-offset-earth-950 sm:hover:scale-[1.01]"
+          className="flex-1 group bg-white border border-[#E8E3DA] hover:border-[#4E9A6F] rounded-2xl p-8 text-left transition-all duration-200 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4E9A6F]"
         >
-          <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 group-hover:bg-emerald-500/30 flex items-center justify-center mx-auto mb-5 transition-colors">
-            <User2 className="w-9 h-9 text-emerald-400" />
+          <div className="w-12 h-12 rounded-xl bg-[#EDF4EF] flex items-center justify-center mb-6">
+            <User2 className="w-6 h-6 text-[#4E9A6F]" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-3">I'm a Patient</h2>
-          <p className="text-earth-300 text-sm mb-6 leading-relaxed">
-            Find Ayurveda doctors, explore specializations, and begin your healing journey
+          <h2 className="text-2xl font-bold text-[#1C1C1C] mb-3">I'm a Patient</h2>
+          <p className="text-[#7A7570] text-sm mb-8 leading-relaxed">
+            Find expert doctors, book sessions, and follow your treatment plan.
           </p>
-          <span className="inline-flex items-center gap-2 text-emerald-400 text-sm font-semibold">
-            Login or Register <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          <span className="inline-flex items-center gap-2 text-[#4E9A6F] text-sm font-semibold">
+            Join the Portal <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </span>
         </button>
       </div>
 
-      <p className="text-earth-600 text-sm mt-12">© 2026 ATASS · Ayurveda Wellness Platform</p>
+      <p className="text-[#7A7570] text-xs mt-16 font-medium uppercase tracking-[0.1em]">
+        © 2026 AyurSutra · Natural Healing
+      </p>
     </div>
   );
 }
