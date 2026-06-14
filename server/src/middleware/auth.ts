@@ -26,7 +26,7 @@ export function generateAccessToken(payload: Omit<TokenPayload, 'type' | 'iat' |
   return jwt.sign(
     { ...payload, type: 'access' },
     config.JWT_SECRET,
-    { expiresIn: config.JWT_EXPIRY }
+    { expiresIn: config.JWT_EXPIRY as any }
   );
 }
 
@@ -39,7 +39,7 @@ export function generateRefreshToken(payload: Omit<TokenPayload, 'type' | 'iat' 
   return jwt.sign(
     { ...payload, type: 'refresh' },
     config.JWT_REFRESH_SECRET,
-    { expiresIn: config.JWT_REFRESH_EXPIRY }
+    { expiresIn: config.JWT_REFRESH_EXPIRY as any }
   );
 }
 

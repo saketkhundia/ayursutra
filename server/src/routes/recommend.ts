@@ -42,7 +42,7 @@ router.post('/therapies-for-appointment', async (req: Request, res: Response) =>
     if (therapy_type && !therapy_type_id) {
       // Get all therapy types and search client-side (case-insensitive)
       const ttSnap = await collections.therapyTypes().get();
-      const therapies = ttSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const therapies = ttSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       
       // Try exact match first
       let matched = therapies.find(t => t.name === therapy_type);

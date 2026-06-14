@@ -662,7 +662,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
     });
 
     if (mlResponse.ok) {
-      const mlResult = await mlResponse.json();
+      const mlResult = await mlResponse.json() as any;
       
       // Batch write the sequenced sessions
       const batch = db.batch();

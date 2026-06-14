@@ -64,7 +64,7 @@ export function errorHandler(
   next: NextFunction
 ) {
   // Add correlation ID to error logs
-  const correlationId = req.id || 'unknown';
+  const correlationId = (req as any).id || 'unknown';
 
   let error = err;
   if (!(err instanceof AppError)) {

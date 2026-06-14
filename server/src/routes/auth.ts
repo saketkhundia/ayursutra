@@ -18,7 +18,7 @@ const router = Router();
 // POST /auth/login — doctor logs in with email + password
 router.post('/login', validateRequest(loginSchema), async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.validated as any;
+    const { email, password } = (req as any).validated;
     const normalizedEmail = email.toLowerCase().trim();
 
     const snap = await collections.practitioners().where('email', '==', normalizedEmail).get();
@@ -219,7 +219,7 @@ router.post('/register/patient', async (req: Request, res: Response) => {
 // POST /auth/login/patient — patient logs in
 router.post('/login/patient', validateRequest(loginSchema), async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.validated as any;
+    const { email, password } = (req as any).validated;
     const normalizedEmail = email.toLowerCase().trim();
 
     const snap = await collections.patients().where('email', '==', normalizedEmail).get();
