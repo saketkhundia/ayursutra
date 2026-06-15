@@ -15,8 +15,9 @@ export default function PatientDetail() {
   const [loading, setLoading] = useState(true);
   const { on, joinPatientChannel, leaveRoom } = useSocket();
 
-  const loadPatientData = () => {
+  const loadPatientData = (silent = false) => {
     if (!id) return;
+    if (!silent) setLoading(true);
     Promise.all([
       api.getPatient(id).catch(() => null),
       api.getPatientHistory(id).catch(() => ({ plans: [], sessions: [] })),
@@ -36,10 +37,17 @@ export default function PatientDetail() {
     loadPatientData();
     if (id) {
       joinPatientChannel(id);
-      const unsub = on('treatment-plan:created', loadPatientData);
+      const unsub = on('treatment-plan:created', () => loadPatientData(true));
+      
+      // Polling fallback to keep patient details in sync when WebSocket is offline
+      const interval = setInterval(() => {
+        loadPatientData(true);
+      }, 6000);
+
       return () => {
         unsub();
         leaveRoom(`patient:${id}`);
+        clearInterval(interval);
       };
     }
   }, [id]);

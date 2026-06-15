@@ -19,6 +19,7 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const menuRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
 
   // Close dropdown on route change
   useEffect(() => {
@@ -29,7 +30,12 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
   useEffect(() => {
     if (!menuOpen) return;
     const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        hamburgerRef.current &&
+        !hamburgerRef.current.contains(e.target as Node)
+      ) {
         setMenuOpen(false);
       }
     };
@@ -83,6 +89,7 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
 
           {/* Hamburger (mobile) */}
           <button
+            ref={hamburgerRef}
             className="navbar-hamburger"
             onClick={() => setMenuOpen((o) => !o)}
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}

@@ -63,7 +63,18 @@ export default function Notifications() {
     }).finally(() => setLoading(false));
 
     const unsub = on('notification', () => loadNotifications());
-    return unsub;
+    const unsubNew = on('notification:new', () => loadNotifications());
+
+    // Polling fallback to keep notifications in sync when WebSocket is offline
+    const interval = setInterval(() => {
+      loadNotifications();
+    }, 5000);
+
+    return () => {
+      unsub();
+      unsubNew();
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => { loadNotifications(); }, [selectedPatient, filter]);

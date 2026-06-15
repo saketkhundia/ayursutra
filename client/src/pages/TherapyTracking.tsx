@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, WifiOff, XCircle, Loader2, Trash2 } from 'lucide-react';
+import { Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { api } from '../api';
 import { useSocket } from '../hooks/useSocket';
@@ -72,7 +72,16 @@ export default function TherapyTracking() {
     });
     const unsubCreate = on('session:created', () => loadData());
 
-    return () => { unsubUpdate(); unsubCreate(); };
+    // Polling fallback to keep therapy tracking sessions in sync when WebSocket is offline
+    const interval = setInterval(() => {
+      loadData();
+    }, 6000);
+
+    return () => { 
+      unsubUpdate(); 
+      unsubCreate(); 
+      clearInterval(interval);
+    };
   }, []);
 
   const activeSessions = sessions.filter(s => s.status === 'in-progress');
@@ -144,8 +153,8 @@ export default function TherapyTracking() {
           <h1 className="text-2xl font-bold text-stone-900">Real-Time Therapy Tracking</h1>
           <p className="text-stone-500 mt-1">Monitor active sessions, therapy progress, and recovery milestones</p>
         </div>
-        <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${connected ? 'bg-herb-100 text-herb-700' : 'bg-stone-100 text-stone-500'}`}>
-          {connected ? <><Wifi className="w-3 h-3" /> Live</> : <><WifiOff className="w-3 h-3" /> Offline</>}
+        <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${connected ? 'bg-herb-100 text-herb-700' : 'bg-herb-50 text-herb-600'}`}>
+          {connected ? <><Wifi className="w-3 h-3" /> Live</> : <><Wifi className="w-3 h-3" /> Synced</>}
         </div>
       </div>
 

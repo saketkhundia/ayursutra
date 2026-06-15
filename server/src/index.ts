@@ -168,8 +168,8 @@ app.use((req, res) => {
 // Global error handler (must be last)
 app.use(errorHandler);
 
-// Start server (only in non-production / local development)
-if (process.env.NODE_ENV !== 'production') {
+// Start server if not running on Vercel serverless environment
+if (!process.env.VERCEL) {
   httpServer.listen(PORT, () => {
     logger.info(`✓ ATASS API running on port ${PORT}`);
     logger.info(`✓ Environment: ${config.NODE_ENV}`);
@@ -182,7 +182,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Graceful shutdown (only relevant when server is actually listening)
-if (process.env.NODE_ENV !== 'production') {
+if (!process.env.VERCEL) {
   process.on('SIGTERM', () => {
     logger.warn('SIGTERM received, shutting down gracefully...');
     httpServer.close(() => {

@@ -55,8 +55,8 @@ export default function Dashboard() {
     return 'Good evening';
   }
 
-  const loadAll = () => {
-    setLoading(true);
+  const loadAll = (silent = false) => {
+    if (!silent) setLoading(true);
     Promise.all([
       api.getStats().catch(() => null),
       api.getUpcomingSessions().catch(() => []),
@@ -75,8 +75,17 @@ export default function Dashboard() {
   useEffect(() => {
     loadAll();
     joinRoom('dashboard');
-    const unsub = on('dashboard:refresh', loadAll);
-    return () => unsub?.();
+    const unsub = on('dashboard:refresh', () => loadAll(true));
+    
+    // Polling fallback to keep dashboard stats in sync when WebSocket is offline
+    const interval = setInterval(() => {
+      loadAll(true);
+    }, 15000);
+    
+    return () => {
+      unsub?.();
+      clearInterval(interval);
+    };
   }, []);
 
   if (loading) {

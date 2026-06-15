@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, WifiOff, Sparkles, Flag,
+  Activity, Clock, CheckCircle, Eye, AlertTriangle, Wifi, Sparkles, Flag,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { api, userAuth } from '../api';
@@ -47,7 +47,16 @@ export default function PatientProgress() {
       on('session:updated', () => loadData(false)),
       on('session:created', () => loadData(false)),
     ];
-    return () => unsubs.forEach(u => u());
+    
+    // Polling fallback to keep patient progress in sync when WebSocket is offline
+    const interval = setInterval(() => {
+      loadData(false);
+    }, 6000);
+
+    return () => {
+      unsubs.forEach(u => u());
+      clearInterval(interval);
+    };
   }, [patientId, on, joinPatientChannel, loadData]);
 
   const activeSessions = sessions.filter(s => s.status === 'in-progress');
@@ -80,8 +89,8 @@ export default function PatientProgress() {
             The same plans and sessions your practitioners see — updates appear here in real time.
           </p>
         </div>
-        <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${connected ? 'bg-[#EDF4EF] text-[#4E9A6F]' : 'bg-[#F7F5F0] text-[#7A7570]'}`}>
-          {connected ? <><Wifi className="w-3 h-3" /> Synced live</> : <><WifiOff className="w-3 h-3" /> Reconnecting…</>}
+        <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[#EDF4EF] text-[#4E9A6F]`}>
+          {connected ? <><Wifi className="w-3 h-3" /> Synced live</> : <><Wifi className="w-3 h-3" /> Synced</>}
         </div>
       </div>
 

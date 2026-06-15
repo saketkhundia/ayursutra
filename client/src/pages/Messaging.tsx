@@ -225,6 +225,45 @@ export default function Messaging() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Polling fallback to keep messages and conversations in sync when WebSocket is offline
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      // 1. Refresh unread badge count
+      loadUnreadCount();
+      
+      // 2. Refresh conversations list (to get new messages/conversations in sidebar)
+      api.getConversations().then(convs => {
+        const safeConversations = (convs || [])
+          .map(normalizeConversation)
+          .filter((c): c is Conversation => Boolean(c));
+        
+        setConversations(prev => {
+          const isSame = prev.length === safeConversations.length &&
+            prev.every((c, i) => c.id === safeConversations[i].id && 
+                                c.last_message === safeConversations[i].last_message && 
+                                c.last_message_at === safeConversations[i].last_message_at);
+          return isSame ? prev : safeConversations;
+        });
+      }).catch(err => console.error('[Messaging Polling] Failed to fetch conversations:', err));
+
+      // 3. Refresh current conversation messages if one is selected
+      if (selectedConversation) {
+        if (!selectedConversation.id.startsWith('temp-')) {
+          api.getConversation(selectedConversation.other_user.id, 50, 0).then(response => {
+            const newMsgs = response.messages || [];
+            setMessages(prev => {
+              const isSame = prev.length === newMsgs.length &&
+                prev.every((m, i) => m.id === newMsgs[i].id && m.content === newMsgs[i].content && m.is_read === newMsgs[i].is_read);
+              return isSame ? prev : newMsgs;
+            });
+          }).catch(err => console.error('[Messaging Polling] Failed to fetch messages:', err));
+        }
+      }
+    }, 4000);
+
+    return () => clearInterval(pollInterval);
+  }, [selectedConversation]);
+
   const loadConversations = async () => {
     try {
       setLoading(true);

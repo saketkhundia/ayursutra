@@ -35,14 +35,14 @@ export default function DoctorAppointments() {
   const currentUser = userAuth.getUser();
   const doctorId = currentUser?.id;
 
-  const fetchAppointments = useCallback(async () => {
+  const fetchAppointments = useCallback(async (silent = false) => {
     if (!doctorId) {
       setError('Doctor profile not found. Please login.');
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const data = await api.getAppointments({ doctor_id: doctorId });
       setAppointments(data);
@@ -60,24 +60,32 @@ export default function DoctorAppointments() {
     fetchAppointments();
   }, [fetchAppointments, location.pathname]);
 
-  // Listen for real-time new appointments
+  // Listen for real-time new appointments & fallback to polling when offline
   useEffect(() => {
-    if (!socket) return;
-
-    const handleRequest = () => {
-      fetchAppointments();
-    };
-
-    const handleConnect = () => fetchAppointments();
-
-    socket.on('appointment:request', handleRequest);
-    socket.on('connect', handleConnect);
-
-    return () => {
-      socket.off('appointment:request', handleRequest);
-      socket.off('connect', handleConnect);
-    };
+    // 1. WebSocket handler if available
+    if (socket) {
+      const handleRequest = () => {
+        fetchAppointments(true);
+      };
+      const handleConnect = () => fetchAppointments(true);
+      socket.on('appointment:request', handleRequest);
+      socket.on('connect', handleConnect);
+      
+      // Cleanup for WebSocket
+      return () => {
+        socket.off('appointment:request', handleRequest);
+        socket.off('connect', handleConnect);
+      };
+    }
   }, [socket, fetchAppointments]);
+
+  // 2. Polling fallback interval
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAppointments(true);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [fetchAppointments]);
 
   const handleSendApology = (appointment: Appointment) => {
     navigate(`/messages?patient=${appointment.patient_id}`);

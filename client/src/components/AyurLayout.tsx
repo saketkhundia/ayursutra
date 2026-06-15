@@ -61,6 +61,9 @@ export default function AyurLayout() {
   const user = userAuth.getUser();
   const pageMeta = getPageMeta(location.pathname);
 
+  const lastNotificationIdRef = useRef<string | null>(null);
+  const isFirstLoadRef = useRef<boolean>(true);
+
   // All hooks must be called before any early return
   useEffect(() => {
     if (!user?.id) return;
@@ -79,11 +82,17 @@ export default function AyurLayout() {
       api.getUnreadCount(params).then(data => setUnreadCount(data.count)).catch(() => {});
     };
     refresh();
-    const interval = setInterval(refresh, 30000);
+    const interval = setInterval(refresh, 6000);
     const unsub = on('notification', refresh);
+    const unsubNew = on('notification:new', refresh);
     window.addEventListener('notifications:updated', refresh);
-    return () => { clearInterval(interval); unsub(); window.removeEventListener('notifications:updated', refresh); };
-  }, [role]);
+    return () => { 
+      clearInterval(interval); 
+      unsub(); 
+      unsubNew();
+      window.removeEventListener('notifications:updated', refresh); 
+    };
+  }, [role, user?.id]);
 
   useEffect(() => {
     const unsub = on('notification:new', (data: any) => {
@@ -93,8 +102,54 @@ export default function AyurLayout() {
       setShowToast(true);
       setTimeout(() => setShowToast(false), 6000);
     });
-    return () => unsub();
-  }, [role]);
+
+    if (!user?.id) return unsub;
+
+    const params: Record<string, string> = {};
+    if (role) params.role = role;
+    if (role === 'patient' && user?.id) params.patient_id = user.id;
+
+    const checkNewNotifications = () => {
+      api.getNotifications(params).then(notifications => {
+        if (!notifications || notifications.length === 0) {
+          isFirstLoadRef.current = false;
+          return;
+        }
+        
+        const newest = notifications[0];
+        
+        if (isFirstLoadRef.current) {
+          lastNotificationIdRef.current = newest.id;
+          isFirstLoadRef.current = false;
+          return;
+        }
+
+        if (newest.id !== lastNotificationIdRef.current) {
+          const lastIdx = notifications.findIndex((n: any) => n.id === lastNotificationIdRef.current);
+          const newNotifications = lastIdx !== -1 ? notifications.slice(0, lastIdx) : [newest];
+          
+          if (newNotifications.length > 0) {
+            const notifToShow = newNotifications[0];
+            if (notifToShow.title) {
+              if (!(role === 'doctor' && notifToShow.patient_id !== '')) {
+                setToastNotif({ title: notifToShow.title, message: notifToShow.message || '' });
+                setShowToast(true);
+                setTimeout(() => setShowToast(false), 6000);
+              }
+            }
+          }
+          lastNotificationIdRef.current = newest.id;
+        }
+      }).catch(err => console.error('[AyurLayout] Error polling new notifications for toast:', err));
+    };
+
+    const pollInterval = setInterval(checkNewNotifications, 5000);
+
+    return () => {
+      unsub();
+      clearInterval(pollInterval);
+    };
+  }, [role, user?.id]);
 
   useEffect(() => {
     if (role !== 'patient' || !user?.id || popupShownRef.current) return;
