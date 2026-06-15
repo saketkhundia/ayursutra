@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Clock, CheckCircle, XCircle, MessageSquare, AlertCircle, Loader2, Trash2, Sparkles } from 'lucide-react';
+import { Clock, CheckCircle, MessageSquare, AlertCircle, Trash2, Sparkles } from 'lucide-react';
 import { api, userAuth } from '../api';
 import { useSocket } from '../hooks/useSocket';
 
@@ -17,12 +17,15 @@ interface Appointment {
   created_at: string;
   updated_at: string;
   rejection_reason?: string;
+  auto_approved?: boolean;
+  ai_decision_reason?: string;
+  ai_score?: number;
 }
 
 export default function DoctorAppointments() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { socket, on } = useSocket();
+  const { socket } = useSocket();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,7 +64,7 @@ export default function DoctorAppointments() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleRequest = (data: any) => {
+    const handleRequest = () => {
       fetchAppointments();
     };
 

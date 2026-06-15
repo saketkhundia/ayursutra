@@ -291,11 +291,6 @@ export default function Scheduling() {
     }
   };
 
-  const handleAvailPractitionerChange = (id: string) => {
-    setAvailPractitioner(id);
-    loadAvailability(id);
-  };
-
   const handleAddAvailability = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!availPractitioner) return;
