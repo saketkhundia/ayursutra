@@ -122,7 +122,7 @@ export default function Scheduling() {
 
   const [autoForm, setAutoForm] = useState({
     treatment_plan_id: '', therapy_type_id: '', patient_id: '', practitioner_id: '',
-    start_date: '', num_sessions: '5', frequency_days: '3', preferred_time: '09:00'
+    start_date: '', num_sessions: '5', frequency_days: '1', preferred_time: '09:00'
   });
 
   const loadData = () => {
@@ -212,7 +212,7 @@ export default function Scheduling() {
       });
       setAutoResult(result);
       setShowAutoForm(false);
-      setAutoForm({ treatment_plan_id: '', therapy_type_id: '', patient_id: '', practitioner_id: '', start_date: '', num_sessions: '5', frequency_days: '3', preferred_time: '09:00' });
+      setAutoForm({ treatment_plan_id: '', therapy_type_id: '', patient_id: '', practitioner_id: '', start_date: '', num_sessions: '5', frequency_days: '1', preferred_time: '09:00' });
       loadData();
     } catch (err: any) {
       alert(err.message);
@@ -875,15 +875,9 @@ export default function Scheduling() {
                   <input required type="time" value={autoForm.preferred_time} onChange={e => setAutoForm({ ...autoForm, preferred_time: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Number of Sessions *</label>
-                  <input required type="number" min="1" max="30" value={autoForm.num_sessions} onChange={e => setAutoForm({ ...autoForm, num_sessions: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-stone-700 mb-1">Frequency (days) *</label>
-                  <input required type="number" min="1" max="30" value={autoForm.frequency_days} onChange={e => setAutoForm({ ...autoForm, frequency_days: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">Number of Sessions *</label>
+                <input required type="number" min="1" max="30" value={autoForm.num_sessions} onChange={e => setAutoForm({ ...autoForm, num_sessions: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowAutoForm(false)} className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg hover:bg-stone-50 font-medium text-sm">Cancel</button>
