@@ -6,6 +6,36 @@ import { useSocket } from '../hooks/useSocket';
 
 export default function TherapyTracking() {
   const [sessions, setSessions] = useState<any[]>([]);
+
+  function sessionElapsed(s: any) {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+    const schedStart = sH * 60 + sM;
+    const duration = s.duration_minutes || 60;
+    return Math.max(0, Math.min(100, ((nowMinutes - schedStart) / duration) * 100));
+  }
+
+  function displayStatus(s: any) {
+    if (s.status === 'completed') return 'Completed';
+    if (s.status === 'in-progress') {
+      const elapsed = sessionElapsed(s);
+      if (elapsed <= 0) return 'About to Start';
+      if (elapsed >= 80) return 'About to Complete';
+      return 'In Progress';
+    }
+    return s.status;
+  }
+
+  function statusColor(s: any) {
+    const label = displayStatus(s);
+    if (label === 'Completed') return 'bg-herb-100 text-herb-800';
+    if (label === 'About to Start') return 'bg-blue-100 text-blue-800';
+    if (label === 'About to Complete') return 'bg-amber-100 text-amber-800';
+    if (label === 'In Progress') return 'bg-amber-100 text-amber-800';
+    if (s.status === 'scheduled') return 'bg-blue-100 text-blue-800';
+    return 'bg-stone-100 text-stone-600';
+  }
   const [plans, setPlans] = useState<any[]>([]);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -172,11 +202,23 @@ export default function TherapyTracking() {
                     <p className="text-sm text-saffron-700">{s.therapy_name}</p>
                     <p className="text-xs text-stone-500 mt-1">with {s.practitioner_name}</p>
                   </div>
-                  <span className="text-xs font-medium px-2 py-1 bg-amber-100 text-amber-800 rounded-full animate-pulse">In Progress</span>
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                    displayStatus(s) === 'About to Start' ? 'bg-blue-100 text-blue-800' :
+                    displayStatus(s) === 'About to Complete' ? 'bg-amber-100 text-amber-800' :
+                    'bg-amber-100 text-amber-800'
+                  } ${displayStatus(s) === 'In Progress' ? 'animate-pulse' : ''}`}>{displayStatus(s)}</span>
                 </div>
                 <div className="mt-3">
                   <div className="w-full h-2 bg-stone-200 rounded-full overflow-hidden">
-                    <div className="h-full bg-amber-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+                    {(() => {
+                      const now = new Date();
+                      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                      const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+                      const schedStart = sH * 60 + sM;
+                      const duration = s.duration_minutes || 60;
+                      const elapsed = Math.max(0, Math.min(100, ((nowMinutes - schedStart) / duration) * 100));
+                      return <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${elapsed}%` }} />;
+                    })()}
                   </div>
                   <p className="text-xs text-stone-500 mt-1">{s.duration_minutes} min session</p>
                 </div>
@@ -278,21 +320,42 @@ export default function TherapyTracking() {
                   <p className="text-xs text-stone-500">{s.patient_name}</p>
                 </div>
                 <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                  s.status === 'completed' ? 'bg-herb-100 text-herb-800' :
-                  s.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                  s.status === 'in-progress' ? 'bg-amber-100 text-amber-800' :
-                  'bg-stone-100 text-stone-600'
-                }`}>{s.status}</span>
+                  statusColor(s)
+                }`}>{displayStatus(s)}</span>
               </div>
               <p className="text-xs text-stone-400 mt-2">{s.scheduled_date} at {s.scheduled_time}</p>
-              {s.progress_score && (
+              {s.progress_score ? (
                 <div className="mt-2">
                   <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
                     <div className="h-full bg-herb-500 rounded-full" style={{ width: `${s.progress_score}%` }} />
                   </div>
                   <p className="text-[10px] text-stone-400 mt-0.5">Score: {s.progress_score}%</p>
                 </div>
-              )}
+              ) : s.status === 'in-progress' ? (
+                <div className="mt-2">
+                  <div className="w-full h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                    {(() => {
+                      const now = new Date();
+                      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                      const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+                      const schedStart = sH * 60 + sM;
+                      const duration = s.duration_minutes || 60;
+                      const elapsed = Math.max(0, Math.min(100, ((nowMinutes - schedStart) / duration) * 100));
+                      return <div className="h-full bg-amber-500 rounded-full" style={{ width: `${elapsed}%` }} />;
+                    })()}
+                  </div>
+                  <p className="text-[10px] text-stone-400 mt-0.5">
+                    {(() => {
+                      const now = new Date();
+                      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                      const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+                      const schedStart = sH * 60 + sM;
+                      const duration = s.duration_minutes || 60;
+                      return Math.round(Math.max(0, Math.min(100, ((nowMinutes - schedStart) / duration) * 100)));
+                    })()}% elapsed
+                  </p>
+                </div>
+              ) : null}
               {s.status === 'in-progress' && (
                 <div className="mt-3 flex gap-2">
                   <button
@@ -338,7 +401,7 @@ export default function TherapyTracking() {
             <div><p className="text-stone-500">Duration</p><p className="font-medium">{selectedSession.duration_minutes} min</p></div>
             <div><p className="text-stone-500">Date</p><p className="font-medium">{selectedSession.scheduled_date}</p></div>
             <div><p className="text-stone-500">Time</p><p className="font-medium">{selectedSession.scheduled_time}</p></div>
-            <div><p className="text-stone-500">Status</p><p className="font-medium">{selectedSession.status}</p></div>
+            <div><p className="text-stone-500">Status</p><p className="font-medium">{displayStatus(selectedSession)}</p></div>
             {selectedSession.progress_score && <div><p className="text-stone-500">Progress</p><p className="font-medium">{selectedSession.progress_score}%</p></div>}
           </div>
           {selectedSession.pre_procedure_instructions && (

@@ -96,14 +96,25 @@ router.get('/check', async (req: Request, res: Response) => {
   }
 
   // Get existing sessions on this date for this practitioner (excluding cancelled)
-  const sessSnap = await collections.therapySessions()
-    .where('practitioner_id', '==', practitioner_id)
-    .where('scheduled_date', '==', dateStr).get();
+  const [sessSnap, aptSnap] = await Promise.all([
+    collections.therapySessions()
+      .where('practitioner_id', '==', practitioner_id)
+      .where('scheduled_date', '==', dateStr).get(),
+    collections.appointments()
+      .where('doctor_id', '==', practitioner_id)
+      .where('preferred_date', '==', dateStr).get(),
+  ]);
 
-  const bookedSlots = sessSnap.docs
-    .map(d => d.data())
-    .filter(s => s.status !== 'cancelled')
-    .map(s => ({ start: s.scheduled_time, duration: s.duration_minutes || 60 }));
+  const bookedSlots = [
+    ...sessSnap.docs
+      .map(d => d.data())
+      .filter(s => s.status !== 'cancelled')
+      .map(s => ({ start: s.scheduled_time, duration: s.duration_minutes || 60 })),
+    ...aptSnap.docs
+      .map(d => d.data())
+      .filter(a => a.status === 'accepted')
+      .map(a => ({ start: a.preferred_time, duration: a.duration_minutes || 60 })),
+  ];
 
   const addMin = (t: string, m: number) => {
     const [h, min] = t.split(':').map(Number);

@@ -1,26 +1,33 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// Get all patients
-router.get('/', async (_req: Request, res: Response) => {
-  const snap = await collections.patients().get();
+// All patient routes require doctor authentication
+router.use(verifyDoctorToken);
+
+// Get all patients for the authenticated doctor
+router.get('/', async (req: AuthRequest, res: Response) => {
+  const snap = await collections.patients()
+    .where('practitioner_id', '==', req.doctor!.id)
+    .get();
   const patients = queryToArray(snap).sort((a: any, b: any) => b.created_at.localeCompare(a.created_at));
   res.json(patients);
 });
 
-// Get patient by ID
-router.get('/:id', async (req: Request, res: Response) => {
+// Get patient by ID (must belong to this doctor)
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   const doc = await collections.patients().doc(req.params.id as string).get();
   const patient = docToObj(doc);
   if (!patient) return res.status(404).json({ error: 'Patient not found' });
+  if (patient.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your patient' });
   res.json(patient);
 });
 
 // Create patient
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   const {
     name, age, gender, phone, email, address,
     medical_history, prakriti, current_dosha_imbalance, allergies
@@ -37,6 +44,7 @@ router.post('/', async (req: Request, res: Response) => {
     phone: phone || null, email: email || null, address: address || null,
     medical_history: medical_history || null, prakriti: prakriti || null,
     current_dosha_imbalance: current_dosha_imbalance || null, allergies: allergies || null,
+    practitioner_id: req.doctor!.id,
     created_at: now, updated_at: now,
   });
 
@@ -49,8 +57,8 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(201).json(patient);
 });
 
-// Update patient
-router.put('/:id', async (req: Request, res: Response) => {
+// Update patient (must belong to this doctor)
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   const {
     name, age, gender, phone, email, address,
     medical_history, prakriti, current_dosha_imbalance, allergies
@@ -58,6 +66,8 @@ router.put('/:id', async (req: Request, res: Response) => {
 
   const doc = await collections.patients().doc(req.params.id as string).get();
   if (!doc.exists) return res.status(404).json({ error: 'Patient not found' });
+  const existing = doc.data();
+  if (existing?.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your patient' });
 
   await collections.patients().doc(req.params.id as string).update({
     name, age, gender, phone, email, address,
@@ -69,17 +79,19 @@ router.put('/:id', async (req: Request, res: Response) => {
   res.json(patient);
 });
 
-// Delete patient
-router.delete('/:id', async (req: Request, res: Response) => {
+// Delete patient (must belong to this doctor)
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   const doc = await collections.patients().doc(req.params.id as string).get();
   if (!doc.exists) return res.status(404).json({ error: 'Patient not found' });
+  const existing = doc.data();
+  if (existing?.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your patient' });
 
   await collections.patients().doc(req.params.id as string).delete();
   res.json({ message: 'Patient deleted successfully' });
 });
 
 // Get patient's treatment history with sessions
-router.get('/:id/history', async (req: Request, res: Response) => {
+router.get('/:id/history', async (req: AuthRequest, res: Response) => {
   const plansSnap = await collections.treatmentPlans()
     .where('patient_id', '==', req.params.id as string).get();
   const plans = queryToArray(plansSnap).sort((a: any, b: any) => b.start_date.localeCompare(a.start_date));

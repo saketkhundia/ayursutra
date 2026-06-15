@@ -75,6 +75,7 @@ export default function AyurLayout() {
     const refresh = () => {
       const params: Record<string, string> = {};
       if (role) params.role = role;
+      if (role === 'patient' && user?.id) params.patient_id = user.id;
       api.getUnreadCount(params).then(data => setUnreadCount(data.count)).catch(() => {});
     };
     refresh();

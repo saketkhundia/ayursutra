@@ -1,45 +1,76 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { collections, queryToArray } from '../models/database';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/stats', async (_req: Request, res: Response) => {
-  const patientsSnap = await collections.patients().get();
+// All dashboard routes require doctor authentication
+router.use(verifyDoctorToken);
+
+router.get('/stats', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
+
+  const patientsSnap = await collections.patients()
+    .where('practitioner_id', '==', doctorId).get();
   const totalPatients = patientsSnap.size;
 
-  const activePlansSnap = await collections.treatmentPlans().where('status', '==', 'active').get();
+  const activePlansSnap = await collections.treatmentPlans()
+    .where('practitioner_id', '==', doctorId)
+    .where('status', '==', 'active').get();
   const activePlans = activePlansSnap.size;
 
   const today = new Date().toISOString().split('T')[0];
-  const todaySnap = await collections.therapySessions().where('scheduled_date', '==', today).get();
+  const todaySnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .where('scheduled_date', '==', today).get();
   const todaySessions = todaySnap.size;
 
-  const completedSnap = await collections.therapySessions().where('status', '==', 'completed').get();
+  const completedSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .where('status', '==', 'completed').get();
   const completedSessions = completedSnap.size;
 
   const scheduledSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
     .where('status', '==', 'scheduled').get();
   const upcomingSessions = queryToArray(scheduledSnap).filter((s: any) => s.scheduled_date >= today).length;
 
   const unreadSnap = await collections.notifications().where('is_read', '==', 0).get();
   const unreadNotifications = unreadSnap.size;
 
-  const feedbackSnap = await collections.patientFeedback().get();
-  const feedbackArr = queryToArray(feedbackSnap);
+  // Feedback scoped to this doctor's patients
+  const doctorPatients = queryToArray(patientsSnap);
+  const patientIds = doctorPatients.map((p: any) => p.id);
+  let feedbackArr: any[] = [];
+  if (patientIds.length > 0) {
+    const fbSnap = await collections.patientFeedback().get();
+    feedbackArr = queryToArray(fbSnap).filter((f: any) => patientIds.includes(f.patient_id));
+  }
   const avgRating = feedbackArr.length > 0
     ? feedbackArr.reduce((sum: number, f: any) => sum + (f.overall_rating || 0), 0) / feedbackArr.length
     : 0;
 
+  // Pending appointment requests (patients waiting for doctor approval)
+  const pendingSessionSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .where('status', '==', 'pending').get();
+  const pendingApptSnap = await collections.appointments()
+    .where('doctor_id', '==', doctorId)
+    .where('status', '==', 'pending').get();
+  const pendingReview = pendingSessionSnap.size + pendingApptSnap.size;
+
   res.json({
     totalPatients, activePlans, todaySessions, completedSessions,
-    upcomingSessions, unreadNotifications,
+    upcomingSessions, unreadNotifications, pendingReview,
     averageRating: avgRating ? Number(avgRating.toFixed(1)) : 0,
   });
 });
 
-router.get('/upcoming-sessions', async (_req: Request, res: Response) => {
+router.get('/upcoming-sessions', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
   const today = new Date().toISOString().split('T')[0];
   const snap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
     .where('status', '==', 'scheduled')
     .get();
   const sessions = queryToArray(snap)
@@ -62,9 +93,10 @@ router.get('/upcoming-sessions', async (_req: Request, res: Response) => {
   res.json(sessions);
 });
 
-router.get('/therapy-distribution', async (_req: Request, res: Response) => {
-  const sessSnap = await collections.therapySessions().get();
-  const sessions = queryToArray(sessSnap);
+router.get('/therapy-distribution', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
+  const allSessSnap = await collections.therapySessions().get();
+  const sessions = queryToArray(allSessSnap).filter((s: any) => s.practitioner_id === doctorId);
 
   // Group by therapy_type_id
   const countMap: Record<string, number> = {};
@@ -75,9 +107,10 @@ router.get('/therapy-distribution', async (_req: Request, res: Response) => {
   const distribution = await Promise.all(
     Object.entries(countMap).map(async ([tid, count]) => {
       const ttDoc = await collections.therapyTypes().doc(tid).get();
+      const name = ttDoc.exists ? (ttDoc.data()?.name || `Therapy ${tid.slice(0, 6)}`) : `Therapy ${tid.slice(0, 6)}`;
       return {
-        name: ttDoc.exists ? ttDoc.data()?.name : tid,
-        category: ttDoc.exists ? ttDoc.data()?.category : '',
+        name,
+        category: ttDoc.exists ? ttDoc.data()?.category || '' : '',
         session_count: count,
       };
     })
@@ -87,14 +120,15 @@ router.get('/therapy-distribution', async (_req: Request, res: Response) => {
   res.json(distribution);
 });
 
-router.get('/weekly-sessions', async (_req: Request, res: Response) => {
+router.get('/weekly-sessions', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const cutoff = thirtyDaysAgo.toISOString().split('T')[0];
 
-  const snap = await collections.therapySessions()
-    .where('scheduled_date', '>=', cutoff).get();
-  const sessions = queryToArray(snap);
+  const snap = await collections.therapySessions().get();
+  const allSessions = queryToArray(snap);
+  const sessions = allSessions.filter((s: any) => s.practitioner_id === doctorId && s.scheduled_date >= cutoff);
 
   // Group by scheduled_date
   const dateMap: Record<string, { count: number; completed: number; cancelled: number }> = {};
@@ -112,8 +146,10 @@ router.get('/weekly-sessions', async (_req: Request, res: Response) => {
   res.json(weekly);
 });
 
-router.get('/patient-progress', async (_req: Request, res: Response) => {
-  const patientsSnap = await collections.patients().get();
+router.get('/patient-progress', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
+  const patientsSnap = await collections.patients()
+    .where('practitioner_id', '==', doctorId).get();
   const patients = queryToArray(patientsSnap);
 
   const progressRaw = await Promise.all(patients.map(async (p: any) => {
@@ -138,28 +174,37 @@ router.get('/patient-progress', async (_req: Request, res: Response) => {
 });
 
 // AI Dashboard Insights
-router.get('/ai-insights', async (_req: Request, res: Response) => {
+router.get('/ai-insights', async (req: AuthRequest, res: Response) => {
+  const doctorId = req.doctor!.id;
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const cutoff = thirtyDaysAgo.toISOString().split('T')[0];
 
   // Completion rate
-  const recentSnap = await collections.therapySessions()
-    .where('scheduled_date', '>=', cutoff).get();
-  const recentSessions = queryToArray(recentSnap);
-  const total = recentSessions.length;
+  const allRecentSnap = await collections.therapySessions().get();
+  const allRecentSessions = queryToArray(allRecentSnap);
+  const recentSessions = allRecentSessions.filter((s: any) => s.practitioner_id === doctorId && s.scheduled_date >= cutoff);
+  const allCount = recentSessions.length;
   const completed = recentSessions.filter((s: any) => s.status === 'completed').length;
+  const noShows = recentSessions.filter((s: any) => s.status === 'no-show').length;
+  const total = completed + noShows;
   const completionRate = total > 0 ? Math.round((completed / total) * 1000) / 10 : 0;
 
   // Side effects frequency
-  const fbSnap = await collections.patientFeedback().get();
-  const allFeedback = queryToArray(fbSnap);
+  const doctorPatients = queryToArray(await collections.patients()
+    .where('practitioner_id', '==', doctorId).get());
+  const doctorPatientIds = doctorPatients.map((p: any) => p.id);
+  let allFeedback: any[] = [];
+  if (doctorPatientIds.length > 0) {
+    const fbSnap = await collections.patientFeedback().get();
+    allFeedback = queryToArray(fbSnap).filter((f: any) => doctorPatientIds.includes(f.patient_id));
+  }
   const recentFb = allFeedback.filter((f: any) =>
     f.created_at && f.created_at >= cutoff && f.side_effects && f.side_effects !== ''
   );
   const sideEffectsCount = recentFb.length;
 
-  // Top performing therapies — fetch all sessions in parallel
+  // Top performing therapies
   const therapyRatings: Record<string, { sum: number; count: number; name: string }> = {};
   const fbSessionDocs = await Promise.all(allFeedback.map((f: any) => collections.therapySessions().doc(f.session_id).get()));
   const uniqueTids = [...new Set(fbSessionDocs.filter(d => d.exists).map(d => d.data()?.therapy_type_id as string))];
@@ -180,24 +225,24 @@ router.get('/ai-insights', async (_req: Request, res: Response) => {
     .slice(0, 5);
 
   // Dosha distribution
-  const patientsSnap = await collections.patients().get();
   const doshaMap: Record<string, number> = {};
-  for (const doc of patientsSnap.docs) {
-    const dosha = doc.data().current_dosha_imbalance;
+  for (const p of doctorPatients) {
+    const dosha = p.current_dosha_imbalance;
     if (dosha) doshaMap[dosha] = (doshaMap[dosha] || 0) + 1;
   }
   const doshaDistribution = Object.entries(doshaMap).map(([dosha, count]) => ({ dosha, count }));
 
   // Schedule heatmap
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const allSessSnap = await collections.therapySessions().get();
+  const heatmapSnap = await collections.therapySessions().get();
+  const heatmapAll = queryToArray(heatmapSnap);
+  const doctorSessions = heatmapAll.filter((s: any) => s.practitioner_id === doctorId);
   const heatmap: Record<string, number> = {};
-  for (const doc of allSessSnap.docs) {
-    const d = doc.data();
-    if (d.status === 'cancelled') continue;
-    const dateObj = new Date(d.scheduled_date + 'T00:00:00');
+  for (const s of doctorSessions) {
+    if (s.status === 'cancelled') continue;
+    const dateObj = new Date(s.scheduled_date + 'T00:00:00');
     const day = dayNames[dateObj.getDay()];
-    const key = `${day}|${d.scheduled_time}`;
+    const key = `${day}|${s.scheduled_time}`;
     heatmap[key] = (heatmap[key] || 0) + 1;
   }
   const scheduleHeatmap = Object.entries(heatmap).map(([key, count]) => {
@@ -207,7 +252,7 @@ router.get('/ai-insights', async (_req: Request, res: Response) => {
 
   res.json({
     completionRate,
-    totalSessionsMonth: total,
+    totalSessionsMonth: allCount,
     sideEffectsCount,
     topTherapies,
     doshaDistribution,

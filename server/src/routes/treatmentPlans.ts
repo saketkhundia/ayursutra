@@ -1,13 +1,18 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitTherapyProgressRefresh } from '../services/realtime';
 
 const router = Router();
 
-router.get('/', async (_req: Request, res: Response) => {
-  const snap = await collections.treatmentPlans().get();
+router.use(verifyDoctorToken);
+
+router.get('/', async (req: AuthRequest, res: Response) => {
+  const snap = await collections.treatmentPlans()
+    .where('practitioner_id', '==', req.doctor!.id)
+    .get();
   const plans = queryToArray(snap).sort((a: any, b: any) => b.created_at.localeCompare(a.created_at));
 
   for (const plan of plans) {
@@ -20,10 +25,11 @@ router.get('/', async (_req: Request, res: Response) => {
   res.json(plans);
 });
 
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   const doc = await collections.treatmentPlans().doc(req.params.id as string).get();
   const plan = docToObj(doc);
   if (!plan) return res.status(404).json({ error: 'Treatment plan not found' });
+  if (plan.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your treatment plan' });
 
   const pDoc = await collections.patients().doc(plan.patient_id).get();
   const prDoc = await collections.practitioners().doc(plan.practitioner_id).get();
@@ -46,24 +52,24 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json({ ...plan, sessions, milestones });
 });
 
-router.post('/', async (req: Request, res: Response) => {
-  const { patient_id, practitioner_id, diagnosis, plan_name, start_date, end_date, notes } = req.body;
+router.post('/', async (req: AuthRequest, res: Response) => {
+  const { patient_id, diagnosis, plan_name, start_date, end_date, notes } = req.body;
 
-  if (!patient_id || !practitioner_id || !diagnosis || !plan_name || !start_date || !end_date) {
+  if (!patient_id || !diagnosis || !plan_name || !start_date || !end_date) {
     return res.status(400).json({ error: 'All required fields must be provided' });
   }
 
   const id = uuidv4();
   const now = new Date().toISOString();
   await collections.treatmentPlans().doc(id).set({
-    patient_id, practitioner_id, diagnosis, plan_name,
+    patient_id, practitioner_id: req.doctor!.id, diagnosis, plan_name,
     start_date, end_date, status: 'active', notes: notes || null,
     created_at: now, updated_at: now,
   });
 
   const plan = docToObj(await collections.treatmentPlans().doc(id).get());
   const pDoc = await collections.patients().doc(patient_id).get();
-  const prDoc = await collections.practitioners().doc(practitioner_id).get();
+  const prDoc = await collections.practitioners().doc(req.doctor!.id).get();
   plan.patient_name = pDoc.exists ? pDoc.data()?.name : '';
   plan.practitioner_name = prDoc.exists ? prDoc.data()?.name : '';
 
@@ -71,11 +77,13 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(201).json(plan);
 });
 
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   const { diagnosis, plan_name, start_date, end_date, status, notes } = req.body;
 
   const doc = await collections.treatmentPlans().doc(req.params.id as string).get();
   if (!doc.exists) return res.status(404).json({ error: 'Treatment plan not found' });
+  const existing = doc.data();
+  if (existing?.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your treatment plan' });
 
   const updates: Record<string, any> = { updated_at: new Date().toISOString() };
   if (diagnosis !== undefined) updates.diagnosis = diagnosis;

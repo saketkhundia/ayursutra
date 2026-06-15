@@ -89,7 +89,7 @@ async function seed() {
 
   for (const p of practitioners) {
     const { id, ...data } = p;
-    await collections.practitioners().doc(id).set({ ...data, password_hash: passwordHash, is_active: 1, is_self_registered: true, created_at: new Date().toISOString() });
+    await collections.practitioners().doc(id).set({ ...data, password_hash: passwordHash, is_active: 1, is_self_registered: true, is_seed_data: true, created_at: new Date().toISOString() });
   }
 
   // Therapy Types
@@ -340,5 +340,4 @@ async function seed() {
   console.log(`  Notifications: ${notifs.length}`);
 }
 
-// DISABLED: Seed is now run manually with 'npm run seed' if needed
-// seed().catch(console.error);
+seed().catch(console.error);

@@ -40,6 +40,8 @@ router.get('/unread-count', async (req: Request, res: Response) => {
 
     if (role === 'doctor' && !patient_id) {
       query = query.where('patient_id', '==', '');
+    } else if (role === 'patient' && !patient_id) {
+      return res.json({ count: 0 });
     } else if (patient_id) {
       query = query.where('patient_id', '==', patient_id as string);
     }

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { collections } from '../models/database';
+import { collections, getAuth } from '../models/database';
 import {
   verifyDoctorToken,
   verifyPatientToken,
@@ -279,6 +279,107 @@ router.post('/login/patient', validateRequest(loginSchema), async (req: Request,
   }
 });
 
+// POST /auth/google — Google OAuth login/signup for both doctors and patients
+router.post('/google', async (req: Request, res: Response) => {
+  try {
+    const { idToken, role } = req.body;
+    if (!idToken || !role) {
+      return res.status(400).json({ error: 'idToken and role are required' });
+    }
+    if (role !== 'doctor' && role !== 'patient') {
+      return res.status(400).json({ error: 'Role must be "doctor" or "patient"' });
+    }
+
+    const decoded = await getAuth().verifyIdToken(idToken);
+    const { email, name, picture, uid } = decoded;
+    if (!email) {
+      return res.status(400).json({ error: 'Google account must have an email address' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const displayName = name || email.split('@')[0];
+
+    if (role === 'doctor') {
+      const existing = await collections.practitioners().where('email', '==', normalizedEmail).get();
+
+      if (!existing.empty) {
+        const doc = existing.docs[0];
+        const data = doc.data() as any;
+        const accessToken = generateAccessToken({ id: doc.id, name: data.name, email: normalizedEmail, role: 'doctor' });
+        const refreshToken = generateRefreshToken({ id: doc.id, name: data.name, email: normalizedEmail, role: 'doctor' });
+        return res.json({
+          accessToken, refreshToken, expiresIn: 3600, tokenType: 'Bearer',
+          doctor: { id: doc.id, name: data.name, email: normalizedEmail, specialization: data.specialization || '', doctor_type: data.doctor_type || 'Ayurveda', license_number: data.license_number || '', verified: data.verified || false },
+        });
+      }
+
+      const id = uuidv4();
+      await collections.practitioners().doc(id).set({
+        name: displayName,
+        email: normalizedEmail,
+        specialization: 'General Ayurveda',
+        doctor_type: 'Ayurveda',
+        license_number: '',
+        experience_years: 0,
+        bio: '',
+        qualifications: '',
+        phone: '',
+        is_active: 1,
+        verified: false,
+        is_self_registered: true,
+        google_uid: uid,
+        created_at: new Date().toISOString(),
+      });
+
+      const accessToken = generateAccessToken({ id, name: displayName, email: normalizedEmail, role: 'doctor' });
+      const refreshToken = generateRefreshToken({ id, name: displayName, email: normalizedEmail, role: 'doctor' });
+      return res.status(201).json({
+        accessToken, refreshToken, expiresIn: 3600, tokenType: 'Bearer',
+        doctor: { id, name: displayName, email: normalizedEmail, specialization: 'General Ayurveda', doctor_type: 'Ayurveda', license_number: '', verified: false },
+      });
+    }
+
+    // Patient role
+    const existing = await collections.patients().where('email', '==', normalizedEmail).get();
+
+    if (!existing.empty) {
+      const doc = existing.docs[0];
+      const data = doc.data() as any;
+      const accessToken = generateAccessToken({ id: doc.id, name: data.name, email: normalizedEmail, role: 'patient' });
+      const refreshToken = generateRefreshToken({ id: doc.id, name: data.name, email: normalizedEmail, role: 'patient' });
+      return res.json({
+        accessToken, refreshToken, expiresIn: 3600, tokenType: 'Bearer',
+        patient: { id: doc.id, name: data.name, email: normalizedEmail, age: data.age || null, phone: data.phone || '', gender: data.gender || '' },
+      });
+    }
+
+    const id = uuidv4();
+    await collections.patients().doc(id).set({
+      name: displayName,
+      email: normalizedEmail,
+      age: null,
+      phone: '',
+      gender: '',
+      dosha_profile: '',
+      conditions: [],
+      is_active: 1,
+      is_self_registered: true,
+      google_uid: uid,
+      created_at: new Date().toISOString(),
+    });
+
+    const accessToken = generateAccessToken({ id, name: displayName, email: normalizedEmail, role: 'patient' });
+    const refreshToken = generateRefreshToken({ id, name: displayName, email: normalizedEmail, role: 'patient' });
+    return res.status(201).json({
+      accessToken, refreshToken, expiresIn: 3600, tokenType: 'Bearer',
+      patient: { id, name: displayName, email: normalizedEmail, age: null, phone: '', gender: '' },
+    });
+  } catch (err: any) {
+    console.error('[POST /auth/google]', err.message);
+    return res.status(401).json({ error: 'Invalid Google token' });
+  }
+});
+
 // GET /auth/me — validate current doctor token and return full profile
 router.get('/me', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   try {
@@ -297,6 +398,10 @@ router.get('/me', verifyDoctorToken, async (req: AuthRequest, res: Response) => 
       experience_years: p.experience_years || 0,
       qualifications: p.qualifications || '',
       phone: p.phone || '',
+      address: p.address || '',
+      city: p.city || '',
+      state: p.state || '',
+      zipcode: p.zipcode || '',
     });
   } catch (err: any) {
     console.error('[GET /auth/me]', err.message);
@@ -307,23 +412,31 @@ router.get('/me', verifyDoctorToken, async (req: AuthRequest, res: Response) => 
 // PUT /auth/profile — doctor updates their own profile
 router.put('/profile', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, bio, specialization, experience_years, qualifications, phone, license_number, doctor_type } = req.body;
+    const { name, bio, specialization, experience_years, qualifications, phone, license_number, doctor_type, address, city, state, zipcode } = req.body;
 
     const updateData: Record<string, any> = {};
     if (name !== undefined && name.trim()) updateData.name = name.trim();
     if (bio !== undefined) updateData.bio = bio;
-    if (specialization) updateData.specialization = specialization;
+    if (specialization !== undefined) updateData.specialization = specialization;
     if (experience_years !== undefined) updateData.experience_years = Number(experience_years) || 0;
     if (qualifications !== undefined) updateData.qualifications = qualifications;
     if (phone !== undefined) updateData.phone = phone;
     if (license_number !== undefined) updateData.license_number = license_number;
-    if (doctor_type) updateData.doctor_type = doctor_type;
+    if (doctor_type !== undefined) updateData.doctor_type = doctor_type;
+    if (address !== undefined) updateData.address = address;
+    if (city !== undefined) updateData.city = city;
+    if (state !== undefined) updateData.state = state;
+    if (zipcode !== undefined) updateData.zipcode = zipcode;
 
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    await collections.practitioners().doc(req.doctor!.id).update(updateData);
+    const docRef = collections.practitioners().doc(req.doctor!.id);
+    const existing = await docRef.get();
+    if (!existing.exists) return res.status(404).json({ error: 'Practitioner not found' });
+
+    await docRef.update(updateData);
 
     const doc = await collections.practitioners().doc(req.doctor!.id).get();
     const p = doc.data()!;
@@ -339,6 +452,10 @@ router.put('/profile', verifyDoctorToken, async (req: AuthRequest, res: Response
       experience_years: p.experience_years || 0,
       qualifications: p.qualifications || '',
       phone: p.phone || '',
+      address: p.address || '',
+      city: p.city || '',
+      state: p.state || '',
+      zipcode: p.zipcode || '',
     });
   } catch (err: any) {
     console.error('[PUT /auth/profile]', err.message);

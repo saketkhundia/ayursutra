@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// Get feedback for a session
-router.get('/session/:session_id', async (req: Request, res: Response) => {
+// Doctor-facing feedback routes (require auth)
+router.get('/session/:session_id', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const snap = await collections.patientFeedback()
     .where('session_id', '==', req.params.session_id)
     .get();
@@ -20,7 +21,7 @@ router.get('/session/:session_id', async (req: Request, res: Response) => {
 });
 
 // Get all feedback for a patient
-router.get('/patient/:patient_id', async (req: Request, res: Response) => {
+router.get('/patient/:patient_id', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const snap = await collections.patientFeedback()
     .where('patient_id', '==', req.params.patient_id)
     .get();
@@ -38,7 +39,7 @@ router.get('/patient/:patient_id', async (req: Request, res: Response) => {
   res.json(feedback);
 });
 
-// Submit feedback
+// Submit feedback (patient-facing, no auth required)
 router.post('/', async (req: Request, res: Response) => {
   const {
     session_id, patient_id, overall_rating, pain_level, energy_level,
@@ -84,7 +85,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Get progress trends for a patient (for visualization)
-router.get('/trends/:patient_id', async (req: Request, res: Response) => {
+router.get('/trends/:patient_id', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const snap = await collections.patientFeedback()
     .where('patient_id', '==', req.params.patient_id).get();
   const feedback = queryToArray(snap);

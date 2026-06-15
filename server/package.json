@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
-    "cleanup": "tsx src/cleanup.ts"
+    "cleanup": "tsx src/cleanup.ts",
+    "migrate-patients": "tsx src/migrate-patients.ts"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

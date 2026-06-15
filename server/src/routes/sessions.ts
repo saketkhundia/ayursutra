@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { collections, docToObj, queryToArray, batch } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitSessionUpdate, emitSessionCreated, emitDashboardRefresh, emitTherapyProgressRefresh, emitDoctorAppointmentRequest, emitTreatmentPlanCreated } from '../services/realtime';
 
@@ -132,15 +133,15 @@ async function validatePractitionerSlot(
   return { ok: true };
 }
 
-// Get all sessions (with optional filters)
-router.get('/', async (req: Request, res: Response) => {
-  const { date, status, patient_id, practitioner_id } = req.query;
-  let query: FirebaseFirestore.Query = collections.therapySessions();
+// Get sessions for the authenticated doctor (with optional filters)
+router.get('/', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
+  const { date, status, patient_id } = req.query;
+  let query: FirebaseFirestore.Query = collections.therapySessions()
+    .where('practitioner_id', '==', req.doctor!.id);
 
   if (date) query = query.where('scheduled_date', '==', date);
   if (status) query = query.where('status', '==', status);
   if (patient_id) query = query.where('patient_id', '==', patient_id);
-  if (practitioner_id) query = query.where('practitioner_id', '==', practitioner_id);
 
   const snap = await query.get();
   const sessions = queryToArray(snap).sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date) || a.scheduled_time.localeCompare(b.scheduled_time));
@@ -149,14 +150,15 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(sessions);
 });
 
-// Get session by ID
-router.get('/:id', async (req: Request, res: Response) => {
+// Get session by ID (must belong to this doctor)
+router.get('/:id', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   if (!req.params.id || req.params.id.trim() === '') {
     return res.status(400).json({ error: 'Session ID is required' });
   }
   const doc = await collections.therapySessions().doc(req.params.id).get();
   const session = docToObj(doc);
   if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (session.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
 
   await enrichSession(session);
   const ttDoc = await collections.therapyTypes().doc(session.therapy_type_id).get();
@@ -172,11 +174,11 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json({ ...session, feedback });
 });
 
-// Create session — Patient books appointment (status: 'pending') 
-router.post('/', async (req: Request, res: Response) => {
+// Create session — Doctor creates (auto-approved) or Patient books (pending)
+router.post('/', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const {
     treatment_plan_id, therapy_type_id, patient_id, practitioner_id,
-    scheduled_date, scheduled_time, duration_minutes, is_ml_generated, auto_start_therapy
+    scheduled_date, scheduled_time, duration_minutes, is_ml_generated
   } = req.body;
 
   if (!treatment_plan_id || !therapy_type_id || !patient_id || !practitioner_id || !scheduled_date || !scheduled_time) {
@@ -200,59 +202,36 @@ router.post('/', async (req: Request, res: Response) => {
     return res.status(409).json({ error: slotValidation.error });
   }
 
-  // AI bookings are accepted automatically only after the slot matches doctor availability.
-  const initialStatus = is_ml_generated
-    ? (auto_start_therapy ? 'in-progress' : 'scheduled')
-    : 'pending';
+  // Auto-approve when the authenticated doctor is creating the session
+  const isDoctorInitiated = req.doctor?.id === practitioner_id;
+  const initialStatus = isDoctorInitiated ? 'scheduled' : 'pending';
 
   await collections.therapySessions().doc(id).set({
     treatment_plan_id, therapy_type_id, patient_id, practitioner_id,
     scheduled_date, scheduled_time, duration_minutes: finalDuration,
-    status: initialStatus, 
-    requested_at: is_ml_generated ? null : now,  // Track when patient requested
-    confirmed_at: is_ml_generated ? now : null,  // ML sessions are pre-confirmed
-    actual_start_time: initialStatus === 'in-progress' ? now : null,
+    status: initialStatus,
+    requested_at: isDoctorInitiated ? null : now,
+    confirmed_at: isDoctorInitiated ? now : null,
+    actual_start_time: null,
     actual_end_time: null,
     session_notes: null, progress_score: null, ai_confidence: null,
     created_at: now, updated_at: now,
     is_ml_generated: is_ml_generated || false,
   });
 
-  // Only auto-create reminder notifications if scheduled (not pending)
-  if (initialStatus === 'scheduled') {
-    if (therapy?.pre_procedure_instructions) {
-      await notifyPatient({
-        patient_id, session_id: id, type: 'pre-procedure',
-        title: `Pre-procedure: ${therapy.name}`,
-        message: therapy.pre_procedure_instructions,
-        scheduled_for: `${scheduled_date} ${scheduled_time}`,
-      });
-    }
-    if (therapy?.post_procedure_instructions) {
-      await notifyPatient({
-        patient_id, session_id: id, type: 'post-procedure',
-        title: `Post-procedure: ${therapy.name}`,
-        message: therapy.post_procedure_instructions,
-        scheduled_for: `${scheduled_date} ${scheduled_time}`,
-      });
-    }
-  }
-
-  if (initialStatus === 'in-progress') {
-    const practitioner = docToObj(await collections.practitioners().doc(practitioner_id).get());
+  if (isDoctorInitiated) {
+    // Doctor-created — notify patient directly
+    const patient = docToObj(await collections.patients().doc(patient_id).get());
     await notifyPatient({
-      patient_id, session_id: id, type: 'therapy_started',
-      title: 'Therapy Session Started',
-      message: `Your ${therapy?.name || 'therapy'} session with Dr. ${practitioner?.name || 'your practitioner'} has started.`,
+      patient_id,
+      session_id: id,
+      type: 'reminder',
+      title: 'Session Scheduled',
+      message: `Your ${therapy?.name || 'therapy'} session is scheduled for ${scheduled_date} at ${scheduled_time}.`,
       scheduled_for: `${scheduled_date} ${scheduled_time}`,
     });
-  }
-
-  const session = docToObj(await collections.therapySessions().doc(id).get());
-  await enrichSession(session);
-  
-  // PHASE 1: Notify doctor of new pending appointment request
-  if (initialStatus === 'pending') {
+  } else {
+    // Patient-initiated — notify doctor for approval
     const practitioner = docToObj(await collections.practitioners().doc(practitioner_id).get());
     const patient = docToObj(await collections.patients().doc(patient_id).get());
     emitDoctorAppointmentRequest(practitioner_id, {
@@ -264,6 +243,8 @@ router.post('/', async (req: Request, res: Response) => {
     });
   }
 
+  const session = docToObj(await collections.therapySessions().doc(id).get());
+  await enrichSession(session);
   emitSessionCreated(session);
   emitDashboardRefresh();
   res.status(201).json(session);
@@ -289,40 +270,15 @@ router.post('/auto-schedule', async (req: Request, res: Response) => {
     const sessionDate = new Date(start_date);
     sessionDate.setDate(sessionDate.getDate() + (i * freq));
     const dateStr = sessionDate.toISOString().split('T')[0];
+    const now = new Date().toISOString();
 
     const id = uuidv4();
-    const now = new Date().toISOString();
     await collections.therapySessions().doc(id).set({
       treatment_plan_id, therapy_type_id, patient_id, practitioner_id,
       scheduled_date: dateStr, scheduled_time: time, duration_minutes: therapy.duration_minutes,
-      status: 'scheduled', actual_start_time: null, actual_end_time: null,
+      status: 'pending', actual_start_time: null, actual_end_time: null,
       session_notes: null, progress_score: null, ai_confidence: null,
       created_at: now, updated_at: now,
-    });
-
-    // Auto-create notifications
-    if (therapy.pre_procedure_instructions) {
-      await collections.notifications().doc(uuidv4()).set({
-        patient_id, session_id: id, type: 'pre-procedure', channel: 'in-app',
-        title: `Pre-procedure: ${therapy.name}`, message: therapy.pre_procedure_instructions,
-        is_read: 0, delivery_status: 'pending', scheduled_for: `${dateStr} ${time}`,
-        sent_at: null, created_at: now,
-      });
-    }
-    if (therapy.post_procedure_instructions) {
-      await collections.notifications().doc(uuidv4()).set({
-        patient_id, session_id: id, type: 'post-procedure', channel: 'in-app',
-        title: `Post-procedure: ${therapy.name}`, message: therapy.post_procedure_instructions,
-        is_read: 0, delivery_status: 'pending', scheduled_for: `${dateStr} ${time}`,
-        sent_at: null, created_at: now,
-      });
-    }
-    await collections.notifications().doc(uuidv4()).set({
-      patient_id, session_id: id, type: 'reminder', channel: 'in-app',
-      title: 'Upcoming Therapy Session',
-      message: `You have a ${therapy.name} session at ${time} on ${dateStr}.`,
-      is_read: 0, delivery_status: 'pending', scheduled_for: `${dateStr} ${time}`,
-      sent_at: null, created_at: now,
     });
 
     createdSessions.push({ id, date: dateStr, time });
@@ -333,7 +289,7 @@ router.post('/auto-schedule', async (req: Request, res: Response) => {
 });
 
 // Update session status
-router.patch('/:id/status', async (req: Request, res: Response) => {
+router.patch('/:id/status', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   if (!req.params.id || req.params.id.trim() === '') {
     return res.status(400).json({ error: 'Session ID is required' });
   }
@@ -346,6 +302,34 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
 
   const doc = await collections.therapySessions().doc(req.params.id).get();
   if (!doc.exists) return res.status(404).json({ error: 'Session not found' });
+  const existingData = doc.data();
+  if (existingData?.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
+
+  // Status transition validation
+  if (status === 'completed') {
+    if (existingData?.status !== 'in-progress') {
+      return res.status(400).json({
+        error: `Cannot complete a session with status '${existingData?.status}'. Only 'in-progress' sessions can be completed.`
+      });
+    }
+  }
+  if (status === 'in-progress') {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    if (existingData?.scheduled_date !== today) {
+      return res.status(400).json({
+        error: `Cannot start session scheduled for ${existingData?.scheduled_date}. Sessions can only be started on their scheduled date.`
+      });
+    }
+    const [schedH, schedM] = existingData.scheduled_time.split(':').map(Number);
+    const schedMinutes = schedH * 60 + schedM;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    if (currentMinutes < schedMinutes) {
+      return res.status(400).json({
+        error: `Cannot start therapy before the scheduled time (${existingData.scheduled_time}). Current time is ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}.`
+      });
+    }
+  }
 
   const updates: any = { status, updated_at: new Date().toISOString() };
   if (status === 'in-progress') updates.actual_start_time = new Date().toISOString();
@@ -447,7 +431,7 @@ router.patch('/:id/status', async (req: Request, res: Response) => {
  * PATCH /sessions/:id/start - Doctor initiates therapy session
  * Therapy can only start after acceptance. This endpoint marks the actual start.
  */
-router.patch('/:id/start', async (req: Request, res: Response) => {
+router.patch('/:id/start', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
     if (!sessionId || sessionId.trim() === '') {
@@ -461,11 +445,29 @@ router.patch('/:id/start', async (req: Request, res: Response) => {
     }
 
     const session = doc.data() as any;
+    if (session.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
 
     // Only allow starting if session is in 'scheduled' status
     if (session.status !== 'scheduled') {
       return res.status(400).json({ 
         error: `Cannot start therapy session with status: ${session.status}. Only 'scheduled' sessions can be started.` 
+      });
+    }
+
+    // Only allow starting on the scheduled date at or after the booked time
+    const currentDate = new Date();
+    const today = currentDate.toISOString().split('T')[0];
+    if (session.scheduled_date !== today) {
+      return res.status(400).json({
+        error: `Cannot start session scheduled for ${session.scheduled_date}. Sessions can only be started on their scheduled date.`
+      });
+    }
+    const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes();
+    const [schedH, schedM] = session.scheduled_time.split(':').map(Number);
+    const schedMinutes = schedH * 60 + schedM;
+    if (currentMinutes < schedMinutes) {
+      return res.status(400).json({
+        error: `Cannot start therapy before the scheduled time (${session.scheduled_time}). Current time is ${String(currentDate.getHours()).padStart(2, '0')}:${String(currentDate.getMinutes()).padStart(2, '0')}.`
       });
     }
 
@@ -525,8 +527,8 @@ router.patch('/:id/start', async (req: Request, res: Response) => {
   }
 });
 
-// Reschedule session
-router.patch('/:id/reschedule', async (req: Request, res: Response) => {
+// Reschedule session (must belong to this doctor)
+router.patch('/:id/reschedule', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   if (!req.params.id || req.params.id.trim() === '') {
     return res.status(400).json({ error: 'Session ID is required' });
   }
@@ -538,6 +540,7 @@ router.patch('/:id/reschedule', async (req: Request, res: Response) => {
   const doc = await collections.therapySessions().doc(req.params.id).get();
   if (!doc.exists) return res.status(404).json({ error: 'Session not found' });
   const existing = doc.data() as any;
+  if (existing.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
 
   await collections.therapySessions().doc(req.params.id).update({
     scheduled_date, scheduled_time, updated_at: new Date().toISOString(),
@@ -559,7 +562,7 @@ router.patch('/:id/reschedule', async (req: Request, res: Response) => {
 });
 
 // PHASE 1: Doctor approves a pending appointment request
-router.put('/:id/approve', async (req: Request, res: Response) => {
+router.put('/:id/approve', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const { approval_notes } = req.body;
   const sessionId = req.params.id;
   if (!sessionId || sessionId.trim() === '') {
@@ -570,6 +573,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
   if (!doc.exists) return res.status(404).json({ error: 'Session not found' });
 
   const session = doc.data() as any;
+  if (session.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
   if (session.status !== 'pending') {
     return res.status(400).json({ error: `Cannot approve a session with status '${session.status}'` });
   }
@@ -725,7 +729,7 @@ router.put('/:id/approve', async (req: Request, res: Response) => {
 });
 
 // PHASE 1: Doctor rejects a pending appointment request
-router.put('/:id/reject', async (req: Request, res: Response) => {
+router.put('/:id/reject', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   const { rejection_reason } = req.body;
   const sessionId = req.params.id;
   if (!sessionId || sessionId.trim() === '') {
@@ -740,6 +744,7 @@ router.put('/:id/reject', async (req: Request, res: Response) => {
   if (!doc.exists) return res.status(404).json({ error: 'Session not found' });
 
   const session = doc.data() as any;
+  if (session.practitioner_id !== req.doctor!.id) return res.status(403).json({ error: 'Not your session' });
   if (session.status !== 'pending') {
     return res.status(400).json({ error: `Cannot reject a session with status '${session.status}'` });
   }
@@ -771,29 +776,33 @@ router.put('/:id/reject', async (req: Request, res: Response) => {
   res.json({ status: 'rejected', session: updatedSession });
 });
 
-// Get pending appointments for a doctor
-router.get('/doctor/:practitioner_id/pending', async (req: Request, res: Response) => {
-  const snap = await collections.therapySessions()
+// Get pending appointments for the authenticated doctor
+router.get('/doctor/:practitioner_id/pending', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
+  // Only allow doctors to view their own pending appointments
+  if (req.params.practitioner_id !== req.doctor!.id) {
+    return res.status(403).json({ error: 'You can only view your own pending appointments' });
+  }
+  const allSnap = await collections.therapySessions()
     .where('practitioner_id', '==', req.params.practitioner_id)
-    .where('status', '==', 'pending')
     .get();
-
-  const sessions = queryToArray(snap).sort((a: any, b: any) => 
-    new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
-  );
+  const sessions = queryToArray(allSnap)
+    .filter((s: any) => s.status === 'pending')
+    .sort((a: any, b: any) => 
+      new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime()
+    );
 
   for (const s of sessions) await enrichSession(s);
   res.json(sessions);
 });
 
 /**
- * DELETE /sessions/clear - Clear session history
+ * DELETE /sessions/clear - Clear session history (own sessions only)
  */
-router.delete('/clear', async (req: Request, res: Response) => {
+router.delete('/clear', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   try {
-    const { practitioner_id, patient_id } = req.query;
-    let query: FirebaseFirestore.Query = collections.therapySessions();
-    if (practitioner_id) query = query.where('practitioner_id', '==', practitioner_id as string);
+    const { patient_id } = req.query;
+    let query: FirebaseFirestore.Query = collections.therapySessions()
+      .where('practitioner_id', '==', req.doctor!.id);
     if (patient_id) query = query.where('patient_id', '==', patient_id as string);
 
     const snap = await query.get();

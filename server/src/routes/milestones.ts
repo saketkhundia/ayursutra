@@ -1,12 +1,15 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
+import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 import { emitTherapyProgressRefresh } from '../services/realtime';
 
 const router = Router();
 
+router.use(verifyDoctorToken);
+
 // Get milestones for a treatment plan
-router.get('/plan/:plan_id', async (req: Request, res: Response) => {
+router.get('/plan/:plan_id', async (req: AuthRequest, res: Response) => {
   const snap = await collections.recoveryMilestones()
     .where('treatment_plan_id', '==', req.params.plan_id)
     .get();
@@ -15,7 +18,7 @@ router.get('/plan/:plan_id', async (req: Request, res: Response) => {
 });
 
 // Get milestones for a patient
-router.get('/patient/:patient_id', async (req: Request, res: Response) => {
+router.get('/patient/:patient_id', async (req: AuthRequest, res: Response) => {
   const snap = await collections.recoveryMilestones()
     .where('patient_id', '==', req.params.patient_id)
     .get();
@@ -30,7 +33,7 @@ router.get('/patient/:patient_id', async (req: Request, res: Response) => {
 });
 
 // Create milestone
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   const { treatment_plan_id, patient_id, milestone_name, description, target_date } = req.body;
   if (!treatment_plan_id || !patient_id || !milestone_name) {
     return res.status(400).json({ error: 'treatment_plan_id, patient_id, and milestone_name are required' });
@@ -50,7 +53,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update milestone status
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', async (req: AuthRequest, res: Response) => {
   const { status, achieved_date } = req.body;
   const doc = await collections.recoveryMilestones().doc(req.params.id).get();
   if (!doc.exists) return res.status(404).json({ error: 'Milestone not found' });

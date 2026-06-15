@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Plus, Clock, User, X, Zap, RefreshCw, Stethoscope, Trash2, CheckSquare, ShieldCheck, LogIn, LogOut, Lock } from 'lucide-react';
+import { Calendar, Plus, Clock, User, X, Zap, RefreshCw, Stethoscope, Trash2, CheckSquare, ShieldCheck, LogIn, LogOut, Lock, Info, Sparkles } from 'lucide-react';
 import { api, doctorAuth } from '../api';
 
 function DoctorAvailabilityRow({ practitioner }: { practitioner: any }) {
@@ -44,6 +44,39 @@ function DoctorAvailabilityRow({ practitioner }: { practitioner: any }) {
 
 export default function Scheduling() {
   const [activeTab, setActiveTab] = useState<'sessions' | 'availability'>('sessions');
+
+  function sessionElapsed(s: any) {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+    const schedStart = sH * 60 + sM;
+    const duration = s.duration_minutes || 60;
+    return Math.max(0, Math.min(100, ((nowMinutes - schedStart) / duration) * 100));
+  }
+
+  function displayStatus(s: any) {
+    if (s.status === 'completed') return 'Completed';
+    if (s.status === 'pending') return 'Pending';
+    if (s.status === 'in-progress') {
+      const elapsed = sessionElapsed(s);
+      if (elapsed <= 0) return 'About to Start';
+      if (elapsed >= 80) return 'About to Complete';
+      return 'In Progress';
+    }
+    return s.status;
+  }
+
+  function statusColor(s: any) {
+    const label = displayStatus(s);
+    if (label === 'Completed') return 'bg-herb-100 text-herb-800';
+    if (label === 'Pending') return 'bg-yellow-100 text-yellow-800';
+    if (label === 'About to Start') return 'bg-blue-100 text-blue-800';
+    if (label === 'About to Complete' || label === 'In Progress') return 'bg-amber-100 text-amber-800';
+    if (s.status === 'scheduled') return 'bg-blue-100 text-blue-800';
+    if (s.status === 'cancelled') return 'bg-red-100 text-red-800';
+    if (s.status === 'no-show') return 'bg-stone-100 text-stone-600';
+    return 'bg-stone-100 text-stone-600';
+  }
   const [sessions, setSessions] = useState<any[]>([]);
   const [practitioners, setPractitioners] = useState<any[]>([]);
   const [therapyTypes, setTherapyTypes] = useState<any[]>([]);
@@ -72,9 +105,15 @@ export default function Scheduling() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // When booking — show available slots hint
-  const [slotHint, setSlotHint] = useState<string[]>([]);
+  // When booking — show available slots hint (AI-scored when possible)
+  const [slotHint, setSlotHint] = useState<any[]>([]);
   const [slotHintLoading, setSlotHintLoading] = useState(false);
+  const [slotHintAi, setSlotHintAi] = useState(false);
+
+  // Auto-schedule results panel
+  const [autoResult, setAutoResult] = useState<any>(null);
+  const [autoPlans, setAutoPlans] = useState<any[]>([]);
+  const [autoPlansLoading, setAutoPlansLoading] = useState(false);
 
   const [form, setForm] = useState({
     treatment_plan_id: '', therapy_type_id: '', patient_id: '', practitioner_id: '',
@@ -92,20 +131,20 @@ export default function Scheduling() {
     if (filterDate) params.date = filterDate;
     if (filterStatus) params.status = filterStatus;
 
-    Promise.all([
-      api.getSessions(Object.keys(params).length ? params : undefined),
-      api.getPractitioners(),
-      api.getTherapyTypes(),
-      api.getTreatmentPlans(),
-    ]).then(([s, pr, tt, tp]) => {
-      setSessions(s);
-      setPractitioners(pr);
-      setTherapyTypes(tt);
-      setTreatmentPlans(tp);
-    }).catch(err => {
-      console.error('Error loading data:', err);
-      alert('Failed to load data');
-    }).finally(() => setLoading(false));
+    // Fetch each independently so a failure in one doesn't block others
+    const p1 = api.getSessions(Object.keys(params).length ? params : undefined);
+    const p2 = api.getPractitioners();
+    const p3 = api.getTherapyTypes();
+    const p4 = api.getTreatmentPlans();
+
+    p1.then(setSessions).catch(() => setSessions([]));
+    p2.then(setPractitioners).catch(() => {});
+    p3.then(setTherapyTypes).catch(() => {});
+    p4.then(plans => {
+      setTreatmentPlans(plans || []);
+    }).catch(() => setTreatmentPlans([]));
+
+    Promise.allSettled([p1, p2, p3, p4]).finally(() => setLoading(false));
   };
 
   // Load data on component mount and when filters change
@@ -125,6 +164,29 @@ export default function Scheduling() {
     return () => clearInterval(interval);
   }, []);
 
+  // On mount, if doctor already logged in, set as current availability practitioner
+  useEffect(() => {
+    const doc = doctorAuth.getDoctor();
+    if (doc) {
+      setLoggedInDoctor(doc);
+      setAvailPractitioner(doc.id);
+      loadAvailability(doc.id);
+    }
+  }, []);
+
+  const loadTreatmentPlans = () => {
+    setAutoPlansLoading(true);
+    api.getTreatmentPlans()
+      .then(plans => {
+        setAutoPlans(plans || []);
+      })
+      .catch(err => {
+        console.error('[Scheduling] Failed to load treatment plans:', err);
+        setAutoPlans([]);
+      })
+      .finally(() => setAutoPlansLoading(false));
+  };
+
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -143,12 +205,12 @@ export default function Scheduling() {
   const handleAutoSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const result = await api.autoSchedule({
+      const result = await api.aiAutoSchedule({
         ...autoForm,
         num_sessions: parseInt(autoForm.num_sessions),
         frequency_days: parseInt(autoForm.frequency_days),
       });
-      alert(`${result.sessions.length} sessions scheduled successfully!`);
+      setAutoResult(result);
       setShowAutoForm(false);
       setAutoForm({ treatment_plan_id: '', therapy_type_id: '', patient_id: '', practitioner_id: '', start_date: '', num_sessions: '5', frequency_days: '3', preferred_time: '09:00' });
       loadData();
@@ -158,8 +220,12 @@ export default function Scheduling() {
   };
 
   const handleStatusChange = async (sessionId: string, status: string) => {
-    await api.updateSessionStatus(sessionId, { status });
-    loadData();
+    try {
+      await api.updateSessionStatus(sessionId, { status });
+      loadData();
+    } catch (err: any) {
+      alert(err?.error || err?.message || 'Failed to update session status');
+    }
   };
 
   const handleClearSessions = async () => {
@@ -189,6 +255,26 @@ export default function Scheduling() {
     await api.rescheduleSession(rescheduleId, rescheduleData);
     setRescheduleId(null);
     loadData();
+  };
+
+  const handleApprove = async (sessionId: string) => {
+    try {
+      await api.approveAppointment(sessionId);
+      loadData();
+    } catch (err: any) {
+      alert(err?.error || err?.message || 'Failed to approve session');
+    }
+  };
+
+  const handleReject = async (sessionId: string) => {
+    const reason = prompt('Enter rejection reason:');
+    if (!reason || !reason.trim()) return;
+    try {
+      await api.rejectAppointment(sessionId, reason.trim());
+      loadData();
+    } catch (err: any) {
+      alert(err?.error || err?.message || 'Failed to reject session');
+    }
   };
 
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -244,6 +330,7 @@ export default function Scheduling() {
       // Auto-select their own practitioner slot
       setAvailPractitioner(res.doctor.id);
       loadAvailability(res.doctor.id);
+      loadData();
     } catch (err: any) {
       setLoginError(err.message || 'Login failed');
     } finally {
@@ -256,26 +343,40 @@ export default function Scheduling() {
     setLoggedInDoctor(null);
   };
 
-  // Fetch available slots hint when user picks practitioner + date in booking form
+  // Fetch available slots with AI scoring when possible, fall back to basic check
   const fetchSlotHint = async (practId: string, date: string) => {
     if (!practId || !date) { setSlotHint([]); return; }
     setSlotHintLoading(true);
+    setSlotHintAi(false);
+    try {
+      if (form.therapy_type_id && form.patient_id) {
+        const result = await api.aiSuggestSlots({
+          therapy_type_id: form.therapy_type_id,
+          practitioner_id: practId,
+          patient_id: form.patient_id,
+          start_date: date,
+          num_days: 1,
+        });
+        if (result.slots?.length) {
+          const dateSlots = result.slots.filter((s: any) => s.date === date);
+          if (dateSlots.length > 0) {
+            setSlotHint(dateSlots);
+            setSlotHintAi(true);
+            return;
+          }
+        }
+      }
+    } catch {
+      // AI unavailable, fall through to basic check
+    }
     try {
       const result = await api.checkAvailability(practId, date);
-      setSlotHint(result.slots || []);
+      setSlotHint((result.slots || []).map((t: string) => ({ time: t })));
     } catch {
       setSlotHint([]);
     } finally {
       setSlotHintLoading(false);
     }
-  };
-
-  const statusColors: Record<string, string> = {
-    scheduled: 'bg-blue-100 text-blue-800',
-    'in-progress': 'bg-amber-100 text-amber-800',
-    completed: 'bg-herb-100 text-herb-800',
-    cancelled: 'bg-red-100 text-red-800',
-    'no-show': 'bg-stone-100 text-stone-600',
   };
 
   return (
@@ -300,8 +401,8 @@ export default function Scheduling() {
               </button>
             </div>
           )}
-          <button onClick={() => setShowAutoForm(true)} className="inline-flex items-center gap-2 bg-herb-600 text-white px-4 py-2.5 rounded-lg hover:bg-herb-700 transition-colors font-medium text-sm">
-            <Zap className="w-4 h-4" /> Auto-Schedule
+          <button onClick={() => { loadTreatmentPlans(); setShowAutoForm(true); }} className="inline-flex items-center gap-2 bg-herb-600 text-white px-4 py-2.5 rounded-lg hover:bg-herb-700 transition-colors font-medium text-sm">
+            <Zap className="w-4 h-4" /> AI Auto-Schedule
           </button>
           <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 bg-saffron-500 text-white px-4 py-2.5 rounded-lg hover:bg-saffron-600 transition-colors font-medium text-sm">
             <Plus className="w-4 h-4" /> New Session
@@ -331,6 +432,7 @@ export default function Scheduling() {
         <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="px-3 py-2 border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-saffron-500/40 text-sm" />
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2 border border-stone-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-saffron-500/40 text-sm">
           <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
           <option value="scheduled">Scheduled</option>
           <option value="in-progress">In Progress</option>
           <option value="completed">Completed</option>
@@ -366,23 +468,57 @@ export default function Scheduling() {
                     <td className="py-3 px-4 flex items-center gap-2"><Calendar className="w-4 h-4 text-stone-400" />{s.scheduled_date}</td>
                     <td className="py-3 px-4 flex items-center gap-2"><Clock className="w-4 h-4 text-stone-400" />{s.scheduled_time}</td>
                     <td className="py-3 px-4 font-medium flex items-center gap-2"><User className="w-4 h-4 text-stone-400" />{s.patient_name}</td>
-                    <td className="py-3 px-4"><span className="px-2 py-0.5 rounded-full text-xs font-medium bg-saffron-100 text-saffron-800">{s.therapy_name}</span></td>
+                    <td className="py-3 px-4">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-saffron-100 text-saffron-800">{s.therapy_name}</span>
+                        {(s.is_ml_generated || s.ai_confidence) && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-100 text-indigo-700" title={`AI confidence: ${s.ai_confidence ? Math.round(s.ai_confidence * 100) : '—'}%`}>
+                            <Sparkles className="w-2.5 h-2.5" />AI
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="py-3 px-4">{s.practitioner_name}</td>
                     <td className="py-3 px-4">{s.duration_minutes} min</td>
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[s.status] || 'bg-stone-100 text-stone-600'}`}>{s.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(s)}`}>{displayStatus(s)}</span>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex gap-1">
-                        {s.status === 'scheduled' && (
-                          <>
-                            <button onClick={() => handleStartTherapy(s.id)} className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded hover:bg-amber-100 font-medium">Start Therapy</button>
-                            <button onClick={() => { setRescheduleId(s.id); setRescheduleData({ scheduled_date: s.scheduled_date, scheduled_time: s.scheduled_time }); }} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"><RefreshCw className="w-3 h-3" /></button>
-                            <button onClick={() => handleStatusChange(s.id, 'cancelled')} className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Cancel</button>
-                          </>
-                        )}
+                        {s.status === 'scheduled' && (() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          const now = new Date();
+                          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                          const [sH, sM] = (s.scheduled_time || '00:00').split(':').map(Number);
+                          const schedMinutes = sH * 60 + sM;
+                          const canStart = s.scheduled_date === today && nowMinutes >= schedMinutes;
+                          return (
+                            <>
+                              <button onClick={() => handleStartTherapy(s.id)} disabled={!canStart}
+                                className="text-xs px-2 py-1 bg-amber-50 text-amber-700 rounded hover:bg-amber-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                                title={canStart ? 'Start therapy session' : 'Session time has not arrived yet'}>
+                                {canStart ? 'Start Therapy' : 'Not yet'}
+                              </button>
+                              <button onClick={() => { setRescheduleId(s.id); setRescheduleData({ scheduled_date: s.scheduled_date, scheduled_time: s.scheduled_time }); }} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"><RefreshCw className="w-3 h-3" /></button>
+                              <button onClick={() => handleStatusChange(s.id, 'cancelled')} className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Cancel</button>
+                            </>
+                          );
+                        })()}
                         {s.status === 'in-progress' && (
-                          <button onClick={() => handleStatusChange(s.id, 'completed')} className="text-xs px-2 py-1 bg-herb-50 text-herb-700 rounded hover:bg-herb-100">Complete</button>
+                          <button onClick={() => handleStatusChange(s.id, 'completed')}
+                            className="text-xs px-2 py-1 bg-herb-50 text-herb-700 rounded hover:bg-herb-100 font-medium">
+                            Complete
+                          </button>
+                        )}
+                        {s.status === 'pending' && (
+                          <>
+                            <button onClick={() => handleApprove(s.id)}
+                              className="text-xs px-2 py-1 bg-herb-50 text-herb-700 rounded hover:bg-herb-100 font-medium">
+                              Approve
+                            </button>
+                            <button onClick={() => handleReject(s.id)}
+                              className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">Reject</button>
+                          </>
                         )}
                       </div>
                     </td>
@@ -433,26 +569,32 @@ export default function Scheduling() {
               </div>
             </div>
 
-            {/* Practitioner selector */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-stone-700 mb-1">Select Doctor / Practitioner</label>
-              <select
-                value={availPractitioner}
-                onChange={e => handleAvailPractitionerChange(e.target.value)}
-                className="w-full sm:w-80 px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40 text-sm"
-              >
-                <option value="">-- Choose a practitioner --</option>
-                {practitioners.map(pr => (
-                  <option key={pr.id} value={pr.id}>{pr.name} — {pr.specialization}</option>
-                ))}
-              </select>
-            </div>
+            {/* Logged-in doctor context */}
+            {loggedInDoctor ? (
+              <div className="mb-6">
+                <div className="flex items-center gap-3 bg-herb-50 border border-herb-200 rounded-lg px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-herb-100 flex items-center justify-center">
+                    <User className="w-5 h-5 text-herb-700" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-herb-900">{loggedInDoctor.name}</p>
+                    <p className="text-xs text-herb-600">{loggedInDoctor.specialization || 'Practitioner'}</p>
+                  </div>
+                  {loggedInDoctor.verified && <ShieldCheck className="w-4 h-4 text-herb-600 ml-auto" />}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-16 text-stone-400">
+                <Stethoscope className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Please log in as a doctor to manage your availability</p>
+              </div>
+            )}
 
             {/* Availability grid */}
             {!availPractitioner ? (
               <div className="text-center py-16 text-stone-400">
                 <Stethoscope className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                <p className="text-sm">Select a practitioner to view or set their availability</p>
+                <p className="text-sm">Log in to view and manage your availability</p>
               </div>
             ) : availLoading ? (
               <div className="flex justify-center py-12"><div className="animate-spin w-8 h-8 border-4 border-saffron-500 border-t-transparent rounded-full" /></div>
@@ -617,13 +759,16 @@ export default function Scheduling() {
                   {treatmentPlans.map(p => <option key={p.id} value={p.id}>{p.plan_name} - {p.patient_name}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Therapy Type *</label>
-                <select required value={form.therapy_type_id} onChange={e => setForm({ ...form, therapy_type_id: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40">
-                  <option value="">Select therapy...</option>
-                  {therapyTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.category}) - {t.duration_minutes} min</option>)}
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">Therapy Type *</label>
+                  <select required value={form.therapy_type_id} onChange={e => {
+                    setForm({ ...form, therapy_type_id: e.target.value });
+                    if (form.practitioner_id && form.scheduled_date && e.target.value) fetchSlotHint(form.practitioner_id, form.scheduled_date);
+                  }} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40">
+                    <option value="">Select therapy...</option>
+                    {therapyTypes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.category}) - {t.duration_minutes} min</option>)}
+                  </select>
+                </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-stone-700 mb-1">Date *</label>
@@ -637,22 +782,52 @@ export default function Scheduling() {
                   <input required type="time" value={form.scheduled_time} onChange={e => setForm({ ...form, scheduled_time: e.target.value })} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40" />
                 </div>
               </div>
-              {/* Available slots hint */}
+              {/* Available slots hint — AI-scored when possible */}
               {form.practitioner_id && form.scheduled_date && (
-                <div className={`rounded-lg px-3 py-2.5 text-xs ${slotHint.length > 0 ? 'bg-herb-50 border border-herb-200' : 'bg-stone-50 border border-stone-200'}`}>
+                <div className={`rounded-lg px-3 py-2.5 text-xs ${slotHint.length > 0 ? (slotHintAi ? 'bg-indigo-50 border border-indigo-200' : 'bg-herb-50 border border-herb-200') : 'bg-stone-50 border border-stone-200'}`}>
                   {slotHintLoading ? (
                     <span className="text-stone-400">Checking availability...</span>
                   ) : slotHint.length > 0 ? (
                     <div>
-                      <p className="font-medium text-herb-700 mb-1.5 flex items-center gap-1"><CheckSquare className="w-3.5 h-3.5" /> Doctor available — {slotHint.length} open slot{slotHint.length > 1 ? 's' : ''}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {slotHint.slice(0, 12).map(t => (
-                          <button key={t} type="button" onClick={() => setForm(f => ({ ...f, scheduled_time: t }))}
-                            className={`px-2 py-0.5 rounded font-mono ${form.scheduled_time === t ? 'bg-herb-600 text-white' : 'bg-herb-100 text-herb-800 hover:bg-herb-200'}`}>
-                            {t}
-                          </button>
-                        ))}
+                      <p className="font-medium mb-1.5 flex items-center gap-1" style={{color: slotHintAi ? '#4338CA' : '#4E9A6F'}}>
+                        {slotHintAi ? <Zap className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
+                        {slotHintAi
+                          ? <>AI recommended slots
+                            <span className="group relative inline-flex ml-1 align-middle">
+                              <Info className="w-3.5 h-3.5 text-indigo-400 cursor-help" />
+                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-stone-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 leading-relaxed">
+                                Score breakdown: Ayurvedic time (25pts) · Dosha alignment (20pts) · Practitioner workload (15pts) · Your history (15pts) · General preference (5pts)
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-stone-800" />
+                              </span>
+                            </span>
+                          </>
+                          : `Doctor available — ${slotHint.length} slot${slotHint.length > 1 ? 's' : ''}`}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {slotHint.slice(0, 12).map((t: any, i: number) => {
+                          const time = t.time || t;
+                          const score = t.score;
+                          const isSelected = form.scheduled_time === time;
+                          return (
+                            <div key={i} className="flex flex-col items-center gap-0.5">
+                              <button key={time} type="button" onClick={() => setForm(f => ({ ...f, scheduled_time: time }))}
+                                className={`px-2 py-0.5 rounded font-mono text-[11px] ${isSelected ? (slotHintAi ? 'bg-indigo-600 text-white' : 'bg-herb-600 text-white') : (slotHintAi ? 'bg-indigo-100 text-indigo-800 hover:bg-indigo-200' : 'bg-herb-100 text-herb-800 hover:bg-herb-200')}`}>
+                                {time}
+                              </button>
+                              {slotHintAi && score && (
+                                <span className={`text-[9px] font-medium ${score >= 70 ? 'text-green-600' : score >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                                  {Math.round(score)}%
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
+                      {slotHintAi && slotHint[0]?.reasons?.length > 0 && (
+                        <p className="text-[10px] text-indigo-500 mt-1.5 italic leading-tight">
+                          {slotHint[0].reasons.slice(0, 2).join(' · ')}
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <span className="text-stone-400">No availability set for this day — you can still schedule manually</span>
@@ -673,19 +848,19 @@ export default function Scheduling() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowAutoForm(false)}>
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold flex items-center gap-2"><Zap className="w-5 h-5 text-herb-600" />Auto-Schedule Sessions</h2>
+              <h2 className="text-lg font-bold flex items-center gap-2"><Zap className="w-5 h-5 text-herb-600" />AI Auto-Schedule Sessions</h2>
               <button onClick={() => setShowAutoForm(false)} className="p-1 rounded-lg hover:bg-stone-100"><X className="w-5 h-5" /></button>
             </div>
-            <p className="text-sm text-stone-500 mb-4">Automatically schedule multiple therapy sessions with customizable frequency. Notifications will be created for each session.</p>
+            <p className="text-sm text-stone-500 mb-4">AI automatically schedules dosha-optimized sessions with conflict resolution. Each slot is scored based on Ayurvedic timing, dosha alignment, and practitioner workload. Sessions are auto-approved — no manual review needed.</p>
             <form onSubmit={handleAutoSchedule} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">Treatment Plan *</label>
                 <select required value={autoForm.treatment_plan_id} onChange={e => {
-                  const plan = treatmentPlans.find((p: any) => p.id === e.target.value);
+                  const plan = autoPlans.find((p: any) => p.id === e.target.value);
                   setAutoForm({ ...autoForm, treatment_plan_id: e.target.value, patient_id: plan?.patient_id || '', practitioner_id: plan?.practitioner_id || '' });
                 }} className="w-full px-3 py-2 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-saffron-500/40">
-                  <option value="">Select plan...</option>
-                  {treatmentPlans.map(p => <option key={p.id} value={p.id}>{p.plan_name} - {p.patient_name}</option>)}
+                  <option value="">{autoPlansLoading ? 'Loading plans...' : autoPlans.length === 0 ? 'No plans found' : 'Select plan...'}</option>
+                  {autoPlans.map(p => <option key={p.id} value={p.id}>{p.plan_name} - {p.patient_name}</option>)}
                 </select>
               </div>
               <div>
@@ -717,9 +892,55 @@ export default function Scheduling() {
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowAutoForm(false)} className="flex-1 px-4 py-2.5 border border-stone-200 rounded-lg hover:bg-stone-50 font-medium text-sm">Cancel</button>
-                <button type="submit" className="flex-1 px-4 py-2.5 bg-herb-600 text-white rounded-lg hover:bg-herb-700 font-medium text-sm">Auto-Schedule</button>
+                <button type="submit" className="flex-1 px-4 py-2.5 bg-herb-600 text-white rounded-lg hover:bg-herb-700 font-medium text-sm">AI Auto-Schedule</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Auto-Schedule Results Panel */}
+      {autoResult && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setAutoResult(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <Zap className="w-5 h-5 text-herb-600" />AI Schedule Results
+              </h2>
+              <button onClick={() => setAutoResult(null)} className="p-1 rounded-lg hover:bg-stone-100"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-stone-500 mb-1">{autoResult.message || autoResult.summary || `${autoResult.sessions?.length || 0} sessions scheduled`}</p>
+            {autoResult.average_confidence != null && (
+              <p className="text-xs text-indigo-600 font-medium mb-4">
+                Average confidence: {Math.round(autoResult.average_confidence * 100)}%
+              </p>
+            )}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {(autoResult.sessions || []).map((s: any, i: number) => (
+                <div key={s.id || i} className="flex items-center gap-3 bg-stone-50 rounded-lg px-3 py-2.5">
+                  <span className="text-xs font-bold text-stone-400 w-5">#{i + 1}</span>
+                  <Calendar className="w-4 h-4 text-stone-400 shrink-0" />
+                  <span className="text-sm font-medium text-stone-700">{s.date}</span>
+                  <Clock className="w-4 h-4 text-stone-400 shrink-0" />
+                  <span className="text-sm text-stone-600 font-mono">{s.time}</span>
+                  {s.confidence != null && (
+                    <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${s.confidence >= 0.7 ? 'bg-green-100 text-green-700' : s.confidence >= 0.5 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                      {Math.round(s.confidence * 100)}%
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            {autoResult.summary && (
+              <p className="mt-3 text-xs text-stone-500 italic border-t border-stone-100 pt-3">
+                {autoResult.summary.split(',').map((s: string, i: number) => (
+                  <span key={i} className="inline-block mr-2">{s.trim()}</span>
+                ))}
+              </p>
+            )}
+            <button onClick={() => setAutoResult(null)} className="mt-4 w-full py-2.5 bg-herb-600 text-white rounded-lg hover:bg-herb-700 font-medium text-sm">
+              Done
+            </button>
           </div>
         </div>
       )}

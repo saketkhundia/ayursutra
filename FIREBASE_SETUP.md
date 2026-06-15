@@ -19,6 +19,26 @@
    - Click "Generate new private key"
    - Save the downloaded JSON file as `server/serviceAccountKey.json`
 
+4. **Enable Google Authentication** (for Google OAuth login):
+   - Go to Build → Authentication → Sign-in method
+   - Click "Add new provider" → Google
+   - Enable it and enter a support email
+   - Save
+
+5. **Add a Web App** (for the client Firebase SDK):
+   - Go to Project Settings → General → Your apps → Add app → Web
+   - Register the app (nickname: "AyurSutra Web")
+   - Copy the `firebaseConfig` object values
+   - Fill them into `client/.env`:
+     ```
+     VITE_FIREBASE_API_KEY=your-api-key
+     VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+     VITE_FIREBASE_PROJECT_ID=your-project-id
+     VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+     VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+     VITE_FIREBASE_APP_ID=1:123456789:web:abc123
+     ```
+
 ## Running the App
 
 ```bash

@@ -4,6 +4,117 @@ import { v4 as uuidv4 } from 'uuid';
 import { notifyPatient, notifyDoctors } from '../services/notification-service';
 import { emitTreatmentPlanCreated } from '../services/realtime';
 
+const AI_AUTO_APPROVE_THRESHOLD = 70;
+
+async function findMatchingTherapyType(therapyName: string): Promise<any | null> {
+  const snap = await collections.therapyTypes().get();
+  const types = queryToArray(snap);
+  return types.find(t => t.name.toLowerCase() === therapyName.toLowerCase()) || null;
+}
+
+// Compute an AI score (0–100) for an appointment to decide auto-approval.
+// Considers: dosha–therapy affinity, doctor availability, patient history.
+async function aiScoreAppointment(appointment: any): Promise<{
+  score: number; reason: string; auto_approved: boolean;
+}> {
+  let score = 50;
+  const parts: string[] = ['Base score: 50'];
+
+  // 1. Dosha–therapy affinity (up to +25)
+  const [pDoc, tt] = await Promise.all([
+    appointment.patient_id ? collections.patients().doc(appointment.patient_id).get() : null,
+    findMatchingTherapyType(appointment.therapy_type),
+  ]);
+  const patient = pDoc?.exists ? pDoc.data() : null;
+  const dosha = patient?.current_dosha_imbalance || patient?.prakriti || null;
+
+  const DOSE_AFFINITY: Record<string, Record<string, number>> = {
+    'Basti':    { Vata: 0.95, Pitta: 0.50, Kapha: 0.40 },
+    'Nasya':    { Vata: 0.60, Pitta: 0.65, Kapha: 0.85 },
+    'Vamana':   { Vata: 0.30, Pitta: 0.45, Kapha: 0.95 },
+    'Virechana':{ Vata: 0.40, Pitta: 0.95, Kapha: 0.50 },
+    'Abhyanga': { Vata: 0.90, Pitta: 0.65, Kapha: 0.55 },
+    'Swedana':  { Vata: 0.80, Pitta: 0.40, Kapha: 0.70 },
+    'Shirodhara':{ Vata: 0.85, Pitta: 0.80, Kapha: 0.50 },
+  };
+  if (dosha && tt?.name) {
+    const name = Object.keys(DOSE_AFFINITY).find(k =>
+      tt.name.toLowerCase().includes(k.toLowerCase())
+    ) || tt.name;
+    const affinityKey = ['Vata','Pitta','Kapha'].find(d => dosha.includes(d)) || 'Pitta';
+    const aff = DOSE_AFFINITY[name]?.[affinityKey];
+    if (aff != null) {
+      const pts = Math.round(aff * 25);
+      score += pts;
+      parts.push(`Dosha–therapy affinity: +${pts} (${dosha} × ${tt.name} = ${Math.round(aff * 100)}%)`);
+    }
+  }
+
+  // 2. Available slot bonus (up to +10)
+  if (appointment.availability_note?.includes('Slot is available')) {
+    score += 10;
+    parts.push('Slot available: +10');
+  }
+
+  // 3. Patient history (up to +15)
+  try {
+    const historySnap = await collections.therapySessions()
+      .where('patient_id', '==', appointment.patient_id)
+      .get();
+    const history = queryToArray(historySnap);
+    const completed = history.filter(s => s.status === 'completed').length;
+    const noShows = history.filter(s => s.status === 'no-show').length;
+    const cancelled = history.filter(s => s.status === 'cancelled').length;
+
+    if (completed >= 3) { score += 15; parts.push('Regular patient (3+ completed): +15'); }
+    else if (completed >= 1) { score += 8; parts.push('Returning patient: +8'); }
+    else { score += 3; parts.push('New patient: +3'); }
+
+    if (noShows > 0) { score -= 10 * noShows; parts.push(`No-show history: -${10 * noShows}`); }
+    if (cancelled > 2) { score -= 10; parts.push('Frequent cancellations: -10'); }
+  } catch { /* history unavailable — skip */ }
+
+  // 4. Previously treated by this doctor (up to +10)
+  try {
+    const prevSnap = await collections.therapySessions()
+      .where('patient_id', '==', appointment.patient_id)
+      .where('practitioner_id', '==', appointment.doctor_id)
+      .get();
+    if (prevSnap.size > 0) {
+      score += 10;
+      parts.push('Previously treated by this doctor: +10');
+    }
+  } catch { /* skip */ }
+
+  score = Math.max(0, Math.min(100, score));
+  return {
+    score,
+    reason: parts.join('; '),
+    auto_approved: score >= AI_AUTO_APPROVE_THRESHOLD,
+  };
+}
+
+async function createSessionFromAppointment(appointment: any): Promise<string> {
+  const sessionId = uuidv4();
+  const now = new Date().toISOString();
+  const session = {
+    id: sessionId, patient_id: appointment.patient_id,
+    practitioner_id: appointment.doctor_id,
+    therapy_type_id: appointment.therapy_type_id || null,
+    therapy_name: appointment.therapy_type,
+    scheduled_date: appointment.preferred_date,
+    scheduled_time: appointment.preferred_time,
+    duration_minutes: appointment.duration_minutes || 60,
+    status: 'scheduled',
+    created_at: now, updated_at: now,
+    notes: `Booked via appointment request: ${appointment.reason_for_visit || ''}`.trim(),
+    appointment_id: appointment.id,
+    is_ml_generated: true,
+  };
+  await collections.therapySessions().doc(sessionId).set(session);
+  return sessionId;
+}
+
 const router = Router();
 
 function addMinutesToTime(time: string, minutes: number): string {
@@ -154,6 +265,28 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // Auto-reject any existing pending requests for the same slot by the same patient
+    const existingSnap = await collections.appointments()
+      .where('patient_id', '==', patient_id)
+      .get();
+    const existingPending = existingSnap.docs.filter(d => {
+      const data = d.data();
+      return data.doctor_id === doctor_id && data.preferred_date === preferred_date && data.preferred_time === preferred_time && data.status === 'pending';
+    });
+    if (existingPending.length > 0) {
+      const now = new Date().toISOString();
+      const fbBatch = batch();
+      for (const doc of existingPending) {
+        fbBatch.update(doc.ref, {
+          status: 'rejected',
+          rejection_reason: 'Auto-rejected — you submitted a newer request for the same slot.',
+          rejected_at: now,
+          updated_at: now,
+        });
+      }
+      await fbBatch.commit();
+    }
+
     const availability = await checkDoctorAvailability(
       doctor_id,
       preferred_date,
@@ -162,96 +295,101 @@ router.post('/', async (req: Request, res: Response) => {
     );
     const now = new Date().toISOString();
 
-    // Create appointment with an automatic decision based on doctor availability.
     const appointmentId = uuidv4();
-    const appointment = {
-      patient_id,
-      doctor_id,
-      patient_name: '',
-      doctor_name: '',
-      therapy_type_id: therapy_type_id || null,
-      therapy_type,
-      preferred_date,
-      preferred_time,
-      reason_for_visit: reason_for_visit || '',
-      duration_minutes,
-      status: availability.available ? 'accepted' as const : 'rejected' as const,
-      created_at: now,
-      updated_at: now,
-      accepted_at: availability.available ? now : null,
-      rejected_at: availability.available ? null : now,
-      rejection_reason: availability.available ? null : availability.reason,
-      auto_decision: true,
-    };
 
-    // Save appointment
-    await collections.appointments().doc(appointmentId).set({ id: appointmentId, ...appointment });
-
-    // Enrich appointment details before returning
-    const enrichedAppointment = await enrichAppointment({ id: appointmentId, ...appointment });
-
-    if (availability.available) {
-      const sessionId = uuidv4();
-      const session = {
-        id: sessionId,
-        patient_id,
-        practitioner_id: doctor_id,
-        therapy_type_id: therapy_type_id || null,
-        therapy_name: therapy_type,
-        scheduled_date: preferred_date,
-        scheduled_time: preferred_time,
-        duration_minutes,
-        status: 'in-progress',
-        confirmed_at: now,
-        actual_start_time: now,
-        actual_end_time: null,
-        created_at: now,
-        updated_at: now,
-        notes: `Automatically accepted after doctor availability check: ${reason_for_visit || ''}`,
-        appointment_id: appointmentId,
-        auto_accepted: true,
+    if (!availability.available) {
+      // Slot not available — reject immediately with suggestion
+      const rejectedAppointment: any = {
+        id: appointmentId, patient_id, doctor_id,
+        patient_name: '', doctor_name: '',
+        therapy_type_id: therapy_type_id || null, therapy_type,
+        preferred_date, preferred_time,
+        reason_for_visit: reason_for_visit || '', duration_minutes,
+        status: 'rejected',
+        created_at: now, updated_at: now,
+        accepted_at: null, rejected_at: now,
+        rejection_reason: availability.reason || 'The requested time is not available.',
+        availability_note: 'Slot not available',
+        auto_decision: true,
+        ai_score: null, ai_decision_reason: null,
       };
 
-      await collections.therapySessions().doc(sessionId).set(session);
+      await collections.appointments().doc(appointmentId).set(rejectedAppointment);
+      const enriched = await enrichAppointment(rejectedAppointment);
 
-      // Notify patient with different message for doctor
+      // Send suggestion to patient
+      const availText = availability.available_windows?.length
+        ? ` Available windows: ${availability.available_windows.join(', ')}.`
+        : '';
+
       await notifyPatient({
         patient_id,
-        session_id: sessionId,
-        type: 'therapy_started',
-        title: `Appointment Booked with ${enrichedAppointment.doctor_name}`,
-        message: `Hi ${enrichedAppointment.patient_name}, your ${therapy_type} appointment on ${preferred_date} at ${preferred_time} has been booked successfully.`,
+        type: 'appointment_rejected',
+        title: 'Time Not Available',
+        message: `Sorry, Dr. ${enriched.doctor_name} is not available at ${preferred_time} on ${preferred_date}.${availText} Please choose a different time.`,
         scheduled_for: `${preferred_date} ${preferred_time}`,
       });
-      await notifyDoctors({
-        title: 'New Appointment Booked',
-        message: `${enrichedAppointment.patient_name} booked ${therapy_type} on ${preferred_date} at ${preferred_time}.`,
-        session_id: sessionId,
-      });
 
-      emitTreatmentPlanCreated(patient_id, {
-        appointment_id: appointmentId,
-        session_id: sessionId,
-        doctor_name: enrichedAppointment.doctor_name,
-        therapy_type,
-        scheduled_date: preferred_date,
-        scheduled_time: preferred_time,
-      });
-
-      return res.status(201).json({
-        ...enrichedAppointment,
-        session,
-        message: 'Appointment booked successfully.',
+      return res.status(200).json({
+        ...enriched,
+        status: 'rejected',
+        rejection_reason: availability.reason,
+        available_windows: availability.available_windows || [],
+        auto_approved: false,
+        message: `That time is not available.${availText}`,
       });
     }
 
-    await sendUnavailableMessage(
-      enrichedAppointment,
-      availability.reason || 'The doctor is not available at that time.',
-      availability.available_windows || []
-    );
+    // Slot is available — auto-approve and create session
+    const appointment: any = {
+      id: appointmentId, patient_id, doctor_id,
+      patient_name: '', doctor_name: '',
+      therapy_type_id: therapy_type_id || null, therapy_type,
+      preferred_date, preferred_time,
+      reason_for_visit: reason_for_visit || '', duration_minutes,
+      status: 'accepted',
+      created_at: now, updated_at: now,
+      accepted_at: now, rejected_at: null, rejection_reason: null,
+      availability_note: 'Slot is available',
+      auto_decision: true,
+      ai_score: null, ai_decision_reason: null,
+    };
 
-    res.status(201).json(enrichedAppointment);
+    await collections.appointments().doc(appointmentId).set(appointment);
+
+    const sessionId = await createSessionFromAppointment(appointment);
+    const enriched = await enrichAppointment(appointment);
+
+    // Notify patient
+    await notifyPatient({
+      patient_id,
+      type: 'appointment_accepted',
+      title: 'Appointment Confirmed ✓',
+      message: `Great news! Your ${therapy_type} appointment on ${preferred_date} at ${preferred_time} with Dr. ${enriched.doctor_name} is confirmed. See you there!`,
+      scheduled_for: `${preferred_date} ${preferred_time}`,
+    });
+
+    // Notify doctor
+    await notifyDoctors({
+      title: 'New Appointment Scheduled',
+      message: `${enriched.patient_name || 'A patient'} booked ${therapy_type} on ${preferred_date} at ${preferred_time}. A session has been created in your schedule.`,
+    });
+
+    emitTreatmentPlanCreated(appointment.patient_id, {
+      appointment_id: appointmentId,
+      session_id: sessionId,
+      doctor_name: enriched.doctor_name,
+      therapy_type,
+      scheduled_date: preferred_date,
+      scheduled_time: preferred_time,
+      auto_approved: true,
+    });
+
+    res.status(201).json({
+      ...enriched,
+      auto_approved: true,
+      message: 'Your appointment is confirmed! Your session has been scheduled.',
+    });
   } catch (error: any) {
     console.error('[Appointments] Error creating appointment:', error);
     res.status(500).json({ error: error.message });

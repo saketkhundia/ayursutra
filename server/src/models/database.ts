@@ -1,5 +1,6 @@
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import { getAuth as getFirebaseAuth } from 'firebase-admin/auth';
 import { getConfig } from '../config';
 import path from 'path';
 import fs from 'fs';
@@ -70,6 +71,14 @@ export function getDb(): FirebaseFirestore.Firestore {
     throw new Error('Firestore not initialized. Call initializeDatabase() first.');
   }
   return db;
+}
+
+/** Get the Firebase Auth instance (for verifying ID tokens, safe after initializeDatabase) */
+export function getAuth(): ReturnType<typeof getFirebaseAuth> {
+  if (getApps().length === 0) {
+    throw new Error('Firebase not initialized. Call initializeDatabase() first.');
+  }
+  return getFirebaseAuth();
 }
 
 /** Create a Firestore write batch */

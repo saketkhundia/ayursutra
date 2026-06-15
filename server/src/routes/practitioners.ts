@@ -6,7 +6,7 @@ const router = Router();
 
 router.get('/', async (_req: Request, res: Response) => {
   const snap = await collections.practitioners().get();
-  const practitioners = queryToArray(snap).filter((p: any) => p.is_active === 1).sort((a: any, b: any) => a.name.localeCompare(b.name));
+  const practitioners = queryToArray(snap).filter((p: any) => p.is_active === 1 && !p.is_seed_data).sort((a: any, b: any) => a.name.localeCompare(b.name));
   res.json(practitioners);
 });
 
@@ -19,7 +19,7 @@ router.get('/public', async (req: Request, res: Response) => {
     // Fetch all active practitioners
     const snap = await collections.practitioners().get();
     let doctors = queryToArray(snap)
-      .filter((p: any) => p.is_active === 1)
+      .filter((p: any) => p.is_active === 1 && !p.is_seed_data)
       .map((p: any) => ({
         id: p.id,
         name: p.name,

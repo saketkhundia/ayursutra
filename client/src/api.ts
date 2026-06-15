@@ -139,21 +139,21 @@ async function authRequest<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Dashboard
-  getStats: () => request<any>('/dashboard/stats'),
-  getUpcomingSessions: () => request<any[]>('/dashboard/upcoming-sessions'),
-  getTherapyDistribution: () => request<any[]>('/dashboard/therapy-distribution'),
-  getWeeklySessions: () => request<any[]>('/dashboard/weekly-sessions'),
-  getPatientProgress: () => request<any[]>('/dashboard/patient-progress'),
-  getAiInsights: () => request<any>('/dashboard/ai-insights'),
+  // Dashboard (requires auth)
+  getStats: () => authRequest<any>('/dashboard/stats'),
+  getUpcomingSessions: () => authRequest<any[]>('/dashboard/upcoming-sessions'),
+  getTherapyDistribution: () => authRequest<any[]>('/dashboard/therapy-distribution'),
+  getWeeklySessions: () => authRequest<any[]>('/dashboard/weekly-sessions'),
+  getPatientProgress: () => authRequest<any[]>('/dashboard/patient-progress'),
+  getAiInsights: () => authRequest<any>('/dashboard/ai-insights'),
 
-  // Patients
-  getPatients: () => request<any[]>('/patients'),
-  getPatient: (id: string) => request<any>(`/patients/${id}`),
-  createPatient: (data: any) => request<any>('/patients', { method: 'POST', body: JSON.stringify(data) }),
-  updatePatient: (id: string, data: any) => request<any>(`/patients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deletePatient: (id: string) => request<void>(`/patients/${id}`, { method: 'DELETE' }),
-  getPatientHistory: (id: string) => request<any>(`/patients/${id}/history`),
+  // Patients (requires auth)
+  getPatients: () => authRequest<any[]>('/patients'),
+  getPatient: (id: string) => authRequest<any>(`/patients/${id}`),
+  createPatient: (data: any) => authRequest<any>('/patients', { method: 'POST', body: JSON.stringify(data) }),
+  updatePatient: (id: string, data: any) => authRequest<any>(`/patients/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deletePatient: (id: string) => authRequest<void>(`/patients/${id}`, { method: 'DELETE' }),
+  getPatientHistory: (id: string) => authRequest<any>(`/patients/${id}/history`),
 
   // Practitioners
   getPractitioners: () => request<any[]>('/practitioners'),
@@ -167,14 +167,14 @@ export const api = {
   getTherapyType: (id: string) => request<any>(`/therapy-types/${id}`),
   createTherapyType: (data: any) => request<any>('/therapy-types', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Treatment Plans
-  getTreatmentPlans: () => request<any[]>('/treatment-plans'),
-  getTreatmentPlan: (id: string) => request<any>(`/treatment-plans/${id}`),
-  createTreatmentPlan: (data: any) => request<any>('/treatment-plans', { method: 'POST', body: JSON.stringify(data) }),
+  // Treatment Plans (requires auth)
+  getTreatmentPlans: () => authRequest<any[]>('/treatment-plans'),
+  getTreatmentPlan: (id: string) => authRequest<any>(`/treatment-plans/${id}`),
+  createTreatmentPlan: (data: any) => authRequest<any>('/treatment-plans', { method: 'POST', body: JSON.stringify(data) }),
   getPatientTreatmentPlans: (patientId: string) =>
     authRequest<any[]>(`/treatment-plans?patient_id=${patientId}`),
   updateTreatmentPlan: (id: string, data: any) =>
-    request<any>(`/treatment-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    authRequest<any>(`/treatment-plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   // Sessions - PHASE 1: Get pending appointments for doctor
   getDoctorPendingAppointments: (practitionerId: string) =>
@@ -194,16 +194,16 @@ export const api = {
       body: JSON.stringify({ rejection_reason: reason }) 
     }),
 
-  // Sessions
+  // Sessions (requires auth for doctor operations)
   getSessions: (params?: Record<string, string>) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<any[]>(`/sessions${query}`);
+    return authRequest<any[]>(`/sessions${query}`);
   },
-  getSession: (id: string) => request<any>(`/sessions/${id}`),
-  createSession: (data: any) => request<any>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
+  getSession: (id: string) => authRequest<any>(`/sessions/${id}`),
+  createSession: (data: any) => authRequest<any>('/sessions', { method: 'POST', body: JSON.stringify(data) }),
   autoSchedule: (data: any) => request<any>('/sessions/auto-schedule', { method: 'POST', body: JSON.stringify(data) }),
-  updateSessionStatus: (id: string, data: any) => request<any>(`/sessions/${id}/status`, { method: 'PATCH', body: JSON.stringify(data) }),
-  rescheduleSession: (id: string, data: any) => request<any>(`/sessions/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateSessionStatus: (id: string, data: any) => authRequest<any>(`/sessions/${id}/status`, { method: 'PATCH', body: JSON.stringify(data) }),
+  rescheduleSession: (id: string, data: any) => authRequest<any>(`/sessions/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify(data) }),
   startTherapySession: (sessionId: string, sessionNotes?: string) =>
     authRequest<any>(`/sessions/${sessionId}/start`, {
       method: 'PATCH',
@@ -211,7 +211,7 @@ export const api = {
     }),
   clearSessions: (params?: Record<string, string>) => {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    return request<any>(`/sessions/clear${query}`, { method: 'DELETE' });
+    return authRequest<any>(`/sessions/clear${query}`, { method: 'DELETE' });
   },
 
   // Notifications
@@ -236,17 +236,17 @@ export const api = {
     return request<any>(`/notifications${query}`, { method: 'DELETE' });
   },
 
-  // Feedback
-  getSessionFeedback: (sessionId: string) => request<any[]>(`/feedback/session/${sessionId}`),
-  getPatientFeedback: (patientId: string) => request<any[]>(`/feedback/patient/${patientId}`),
+  // Feedback (requires auth for doctor operations)
+  getSessionFeedback: (sessionId: string) => authRequest<any[]>(`/feedback/session/${sessionId}`),
+  getPatientFeedback: (patientId: string) => authRequest<any[]>(`/feedback/patient/${patientId}`),
   submitFeedback: (data: any) => request<any>('/feedback', { method: 'POST', body: JSON.stringify(data) }),
-  getProgressTrends: (patientId: string) => request<any[]>(`/feedback/trends/${patientId}`),
+  getProgressTrends: (patientId: string) => authRequest<any[]>(`/feedback/trends/${patientId}`),
 
-  // Milestones
-  getPlanMilestones: (planId: string) => request<any[]>(`/milestones/plan/${planId}`),
-  getPatientMilestones: (patientId: string) => request<any[]>(`/milestones/patient/${patientId}`),
-  createMilestone: (data: any) => request<any>('/milestones', { method: 'POST', body: JSON.stringify(data) }),
-  updateMilestone: (id: string, data: any) => request<any>(`/milestones/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Milestones (requires auth)
+  getPlanMilestones: (planId: string) => authRequest<any[]>(`/milestones/plan/${planId}`),
+  getPatientMilestones: (patientId: string) => authRequest<any[]>(`/milestones/patient/${patientId}`),
+  createMilestone: (data: any) => authRequest<any>('/milestones', { method: 'POST', body: JSON.stringify(data) }),
+  updateMilestone: (id: string, data: any) => authRequest<any>(`/milestones/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Practitioner Availability
   getAvailability: (practitionerId?: string) =>
@@ -271,6 +271,13 @@ export const api = {
   // New: Patient login
   patientLogin: (email: string, password: string) =>
     request<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string; patient: any }>('/auth/login/patient', { method: 'POST', body: JSON.stringify({ email, password }) }),
+
+  // Google OAuth login/signup for both doctors and patients
+  googleLogin: (idToken: string, role: 'doctor' | 'patient') =>
+    request<{ accessToken: string; refreshToken: string; expiresIn: number; tokenType: string; doctor?: any; patient?: any }>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken, role }),
+    }),
 
   // New: Get current doctor's full profile
   getDoctorMe: () => authRequest<any>('/auth/me'),
