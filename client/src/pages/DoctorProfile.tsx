@@ -103,6 +103,9 @@ export default function DoctorProfile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [form, setForm] = useState({
     name: '',
     doctor_type: 'Ayurveda',
@@ -141,6 +144,19 @@ export default function DoctorProfile() {
       .catch(() => setError('Failed to load profile'))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleDeleteProfile = async () => {
+    if (deleteConfirmText !== 'DELETE') return;
+    setIsDeleting(true);
+    try {
+      await api.deleteDoctorProfile();
+      userAuth.clear();
+      window.location.href = '/login';
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete profile');
+      setIsDeleting(false);
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -385,6 +401,19 @@ export default function DoctorProfile() {
               </div>
             </div>
 
+            {/* Danger Zone */}
+            <div className="border-t border-red-200 pt-6 mt-6">
+              <h3 className="text-sm font-semibold text-red-700 mb-2">Danger Zone</h3>
+              <p className="text-sm text-red-600 mb-4">Deleting your account is permanent and cannot be undone. This will remove your profile, availability, and all associated session records.</p>
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(true)}
+                className="bg-red-50 text-red-700 hover:bg-red-100 px-4 py-2 rounded-xl text-sm font-semibold transition-colors border border-red-200"
+              >
+                Delete My Account
+              </button>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <button
                 type="submit"
@@ -523,6 +552,40 @@ export default function DoctorProfile() {
                 Patients searching for "{profile?.specialization || 'your specialization'}" will see your profile in the directory.
                 {!profile?.verified && ' Verification badge will appear after admin review.'}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4">
+            <h3 className="text-lg font-bold text-stone-900">Delete Account?</h3>
+            <p className="text-sm text-stone-600">
+              This action is permanent and cannot be undone. All your data, including appointments and therapy sessions, will be permanently removed.
+            </p>
+            <p className="text-sm font-medium text-stone-900">Type <span className="font-mono bg-stone-100 px-1 py-0.5 rounded">DELETE</span> to confirm.</p>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={e => setDeleteConfirmText(e.target.value)}
+              className="w-full border border-stone-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+              placeholder="Type DELETE"
+            />
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={handleDeleteProfile}
+                disabled={deleteConfirmText !== 'DELETE' || isDeleting}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2.5 rounded-xl disabled:opacity-50 transition-colors"
+              >
+                {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 text-sm font-semibold py-2.5 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

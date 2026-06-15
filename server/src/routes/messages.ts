@@ -111,7 +111,7 @@ router.post(
         last_message: content,
         last_message_sender: senderId,
         last_message_at: new Date().toISOString(),
-        unread_count_for_receiver: 1,
+        unread_count_for_receiver: require('firebase-admin').firestore.FieldValue.increment(1),
         updated_at: new Date().toISOString(),
       };
 
@@ -192,6 +192,7 @@ router.get(
       );
 
       // Mark as read if receiver
+      let messagesMarkedRead = false;
       for (const msg of paginatedMessages) {
         if (msg.receiver_id === userId && !msg.is_read) {
           await collections
@@ -199,7 +200,15 @@ router.get(
             .doc(msg.id)
             .update({ is_read: true, updated_at: new Date().toISOString() });
           emitMessageRead(msg.sender_id, msg.id);
+          messagesMarkedRead = true;
         }
+      }
+
+      if (messagesMarkedRead) {
+        await collections
+          .conversations()
+          .doc(conversationId)
+          .update({ unread_count_for_receiver: 0 });
       }
 
       // Return in chronological order (oldest first) for UI

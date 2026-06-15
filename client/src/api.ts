@@ -286,6 +286,10 @@ export const api = {
   updateDoctorProfile: (data: any) =>
     authRequest<any>('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }),
 
+  // New: Doctor deletes their own profile/account
+  deleteDoctorProfile: () =>
+    authRequest<any>('/auth/profile', { method: 'DELETE' }),
+
   // Patient portal (JWT patient only) — same underlying data as doctor therapy views, scoped to you
   getPatientTherapyProgress: () =>
     authRequest<{ sessions: any[]; plans: any[]; milestones: any[] }>('/patient-portal/therapy-progress'),

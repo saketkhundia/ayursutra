@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { collections, getAuth } from '../models/database';
+import { collections, getAuth, batch } from '../models/database';
 import {
   verifyDoctorToken,
   verifyPatientToken,
@@ -460,6 +460,46 @@ router.put('/profile', verifyDoctorToken, async (req: AuthRequest, res: Response
   } catch (err: any) {
     console.error('[PUT /auth/profile]', err.message);
     return res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// DELETE /auth/profile — doctor deletes their own profile
+router.delete('/profile', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = req.doctor!.id;
+
+    const docRef = collections.practitioners().doc(doctorId);
+    const existing = await docRef.get();
+    if (!existing.exists) {
+      return res.status(404).json({ error: 'Practitioner not found' });
+    }
+
+    const fbBatch = batch();
+    
+    // 1. Delete practitioner document
+    fbBatch.delete(docRef);
+
+    // 2. Delete availability
+    const availabilitySnap = await collections.practitionerAvailability()
+      .where('practitioner_id', '==', doctorId).get();
+    availabilitySnap.docs.forEach(doc => fbBatch.delete(doc.ref));
+
+    // 3. Delete appointments
+    const appointmentsSnap = await collections.appointments()
+      .where('doctor_id', '==', doctorId).get();
+    appointmentsSnap.docs.forEach(doc => fbBatch.delete(doc.ref));
+
+    // 4. Delete sessions
+    const sessionsSnap = await collections.therapySessions()
+      .where('practitioner_id', '==', doctorId).get();
+    sessionsSnap.docs.forEach(doc => fbBatch.delete(doc.ref));
+
+    await fbBatch.commit();
+
+    return res.json({ message: 'Profile deleted successfully' });
+  } catch (err: any) {
+    console.error('[DELETE /auth/profile]', err.message);
+    return res.status(500).json({ error: 'Failed to delete profile' });
   }
 });
 
