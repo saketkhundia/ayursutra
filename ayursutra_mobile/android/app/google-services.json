@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "723496654711",
+    "project_id": "ayursutra-55715",
+    "storage_bucket": "ayursutra-55715.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:723496654711:android:4d66326296cdb30902b372",
+        "android_client_info": {
+          "package_name": "com.saket.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "723496654711-psmi1hki8a1tc4g1ifh1smhbatqtl5r0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.saket.app",
+            "certificate_hash": "312fa4c002f13cb2ca5cea60adfc7958d9edf42f"
+          }
+        },
+        {
+          "client_id": "723496654711-3qleatibd1rfuq0ned3b8fjphbigc01o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQEgYwYbGDkE9dNqYTt955DYzQktVV1rw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "723496654711-3qleatibd1rfuq0ned3b8fjphbigc01o.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

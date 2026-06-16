@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { collections, docToObj, queryToArray } from '../models/database';
 import { v4 as uuidv4 } from 'uuid';
-import { verifyDoctorToken, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -25,16 +24,12 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(slots.map((s: any) => ({ ...s, practitioner_name: prMap[s.practitioner_id] || '' })));
 });
 
-// POST /availability — add an availability slot (requires doctor JWT)
-router.post('/', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
+// POST /availability — add an availability slot
+router.post('/', async (req: Request, res: Response) => {
   const { practitioner_id, day_of_week, start_time, end_time } = req.body;
 
   if (!practitioner_id || day_of_week === undefined || !start_time || !end_time) {
     return res.status(400).json({ error: 'practitioner_id, day_of_week, start_time, and end_time are required' });
-  }
-  // Doctors can only post their own availability
-  if (req.doctor!.id !== practitioner_id) {
-    return res.status(403).json({ error: 'You can only manage your own availability' });
   }
   if (day_of_week < 0 || day_of_week > 6) {
     return res.status(400).json({ error: 'day_of_week must be 0 (Sun) to 6 (Sat)' });
@@ -58,14 +53,10 @@ router.post('/', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
   res.status(201).json({ ...slot, practitioner_name: prDoc.data()?.name || '' });
 });
 
-// DELETE /availability/:id — remove a slot (requires doctor JWT for own slots)
-router.delete('/:id', verifyDoctorToken, async (req: AuthRequest, res: Response) => {
+// DELETE /availability/:id — remove a slot
+router.delete('/:id', async (req: Request, res: Response) => {
   const doc = await collections.practitionerAvailability().doc(String(req.params.id)).get();
   if (!doc.exists) return res.status(404).json({ error: 'Availability slot not found' });
-  // Doctors can only delete their own slots
-  if (doc.data()?.practitioner_id !== req.doctor!.id) {
-    return res.status(403).json({ error: 'You can only delete your own availability slots' });
-  }
   await collections.practitionerAvailability().doc(String(req.params.id)).delete();
   res.json({ message: 'Availability slot deleted' });
 });
