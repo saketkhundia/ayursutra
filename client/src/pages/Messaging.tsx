@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Send, MessageCircle, MessageSquare, AlertCircle } from 'lucide-react';
+import { Send, MessageCircle, MessageSquare, AlertCircle, Trash2, X } from 'lucide-react';
 import { api, userAuth } from '../api';
 import { useSocket } from '../hooks/useSocket';
 
@@ -26,6 +26,7 @@ interface Conversation {
   last_message: string;
   last_message_sender: string;
   last_message_at: string;
+  unread_count?: number;
 }
 
 const normalizeConversation = (conversation: Conversation): Conversation | null => {
@@ -38,6 +39,7 @@ const normalizeConversation = (conversation: Conversation): Conversation | null 
     last_message: conversation.last_message || '',
     last_message_sender: conversation.last_message_sender || '',
     last_message_at: conversation.last_message_at || new Date().toISOString(),
+    unread_count: conversation.unread_count || 0,
   };
 };
 
@@ -66,7 +68,14 @@ export default function Messaging() {
   const [initialError, setInitialError] = useState('');
   const [sending, setSending] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Live ref of the open conversation so socket handlers don't capture stale state
+  const selectedConversationRef = useRef<Conversation | null>(null);
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
   // Load conversations on mount
   useEffect(() => {
@@ -202,7 +211,32 @@ export default function Messaging() {
 
         // Update unread count for received messages
         if (message.receiver_id === currentUser?.id) {
-          setUnreadCount(prev => Math.max(0, prev + 1));
+          const sel = selectedConversationRef.current;
+          const isViewing =
+            sel && (sel.id === message.conversation_id || sel.other_user.id === otherId);
+
+          if (isViewing) {
+            // User is viewing this conversation: mark read on the server,
+            // then re-sync the local + navbar badge accurately.
+            api.getConversation(otherId, 50, 0)
+              .catch(() => {})
+              .finally(() => {
+                loadUnreadCount();
+                window.dispatchEvent(new Event('messages:read'));
+              });
+            setConversations(prev =>
+              prev.map(c => (c.id === message.conversation_id ? { ...c, unread_count: 0 } : c))
+            );
+          } else {
+            setUnreadCount(prev => Math.max(0, prev + 1));
+            setConversations(prev =>
+              prev.map(c =>
+                c.id === message.conversation_id
+                  ? { ...c, unread_count: (c.unread_count || 0) + 1 }
+                  : c
+              )
+            );
+          }
         }
       });
 
@@ -214,9 +248,25 @@ export default function Messaging() {
         );
       });
 
+      // The other participant deleted the conversation — remove it locally too.
+      const unsubscribeDeleted = on('conversation:deleted', (data: { conversation_id: string }) => {
+        if (!data?.conversation_id) return;
+        setConversations(prev => prev.filter(c => c.id !== data.conversation_id));
+        setSelectedConversation(prev => {
+          if (prev && prev.id === data.conversation_id) {
+            setMessages([]);
+            return null;
+          }
+          return prev;
+        });
+        loadUnreadCount();
+        window.dispatchEvent(new Event('messages:read'));
+      });
+
       return () => {
         unsubscribeNew();
         unsubscribeRead();
+        unsubscribeDeleted();
       };
     }
   }, [socket, currentUser?.id, on, upsertConversation]);
@@ -241,7 +291,8 @@ export default function Messaging() {
           const isSame = prev.length === safeConversations.length &&
             prev.every((c, i) => c.id === safeConversations[i].id && 
                                 c.last_message === safeConversations[i].last_message && 
-                                c.last_message_at === safeConversations[i].last_message_at);
+                                c.last_message_at === safeConversations[i].last_message_at &&
+                                (c.unread_count || 0) === (safeConversations[i].unread_count || 0));
           return isSame ? prev : safeConversations;
         });
       }).catch(err => console.error('[Messaging Polling] Failed to fetch conversations:', err));
@@ -291,6 +342,15 @@ export default function Messaging() {
     try {
       const response = await api.getConversation(conversation.other_user.id, 50, 0);
       setMessages(response.messages || []);
+      // Opening a conversation marks its messages read on the server.
+      // Re-sync the local pill and the global navbar badge so stale
+      // "X unread" counts clear immediately, and clear this conversation's
+      // sidebar badge.
+      setConversations(prev =>
+        prev.map(c => (c.id === conversation.id ? { ...c, unread_count: 0 } : c))
+      );
+      loadUnreadCount();
+      window.dispatchEvent(new Event('messages:read'));
     } catch (err: any) {
       console.error('[Messaging] Failed to load messages:', err);
       setError(getFriendlyMessageError(err, 'Failed to load messages'));
@@ -311,6 +371,41 @@ export default function Messaging() {
     setSelectedConversation(conversation);
     setError('');
     await loadMessages(conversation);
+  };
+
+  const confirmDeleteConversation = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    try {
+      // Temp (not-yet-persisted) conversations only exist locally.
+      if (!target.id.startsWith('temp-')) {
+        await api.deleteConversation(target.other_user.id);
+      }
+
+      setConversations(prev => prev.filter(c => c.id !== target.id));
+
+      // Clear the message pane if the deleted conversation was open.
+      setSelectedConversation(prev => {
+        if (
+          prev &&
+          (prev.id === target.id || prev.other_user.id === target.other_user.id)
+        ) {
+          setMessages([]);
+          return null;
+        }
+        return prev;
+      });
+
+      setDeleteTarget(null);
+      loadUnreadCount();
+      window.dispatchEvent(new Event('messages:read'));
+    } catch (err: any) {
+      console.error('[Messaging] Failed to delete conversation:', err);
+      setError(getFriendlyMessageError(err, 'Failed to delete conversation'));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -433,25 +528,43 @@ export default function Messaging() {
               </div>
             ) : (
               conversations.map(conversation => (
-                <button
+                <div
                   key={conversation.id}
-                  onClick={() => handleSelectConversation(conversation)}
-                  className={`w-full text-left p-3 border-b border-[#E8E3DA] hover:bg-[#F7F5F0] transition-colors ${
+                  className={`relative group border-b border-[#E8E3DA] ${
                     selectedConversation?.other_user.id === conversation.other_user.id ? 'bg-[#EDF4EF] border-l-4 border-l-[#4E9A6F]' : ''
                   }`}
                 >
-                  <div className="flex items-start gap-2">
-                    <div className="w-8 h-8 rounded-full bg-[#EDF4EF] flex items-center justify-center flex-shrink-0 text-xs font-bold text-[#4E9A6F]">
-                      {getInitials(conversation.other_user.name)}
+                  <button
+                    onClick={() => handleSelectConversation(conversation)}
+                    className="w-full text-left p-3 pr-10 hover:bg-[#F7F5F0] transition-colors"
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="w-8 h-8 rounded-full bg-[#EDF4EF] flex items-center justify-center flex-shrink-0 text-xs font-bold text-[#4E9A6F]">
+                        {getInitials(conversation.other_user.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#1C1C1C] truncate">
+                          {conversation.other_user.name}
+                        </p>
+                        <p className="text-xs text-[#7A7570] truncate mt-1">{conversation.last_message}</p>
+                      </div>
+                      {(conversation.unread_count || 0) > 0 && (
+                        <span className="flex-shrink-0 bg-[#4E9A6F] text-white text-[10px] font-bold min-w-[1.25rem] h-5 px-1.5 rounded-full flex items-center justify-center">
+                          {(conversation.unread_count || 0) > 99 ? '99+' : conversation.unread_count}
+                        </span>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#1C1C1C] truncate">
-                        {conversation.other_user.name}
-                      </p>
-                      <p className="text-xs text-[#7A7570] truncate mt-1">{conversation.last_message}</p>
-                    </div>
-                  </div>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(conversation); }}
+                    className="absolute top-1/2 -translate-y-1/2 right-2 p-1.5 rounded-lg text-[#7A7570] hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                    title="Delete conversation"
+                    aria-label={`Delete conversation with ${conversation.other_user.name}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -551,6 +664,53 @@ export default function Messaging() {
           )}
         </div>
       </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-[#E8E3DA] w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#E8E3DA]">
+              <h3 className="font-semibold text-[#1C1C1C] flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-red-600" /> Delete conversation
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="text-[#7A7570] hover:text-[#1C1C1C] disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-[#5A5550]">
+                Delete your conversation with{' '}
+                <span className="font-semibold text-[#1C1C1C]">{deleteTarget.other_user.name}</span>?
+                This permanently removes all messages for both participants and cannot be undone.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 px-5 py-4 bg-[#F7F5F0] border-t border-[#E8E3DA]">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-[#5A5550] hover:bg-[#E8E3DA]/60 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteConversation}
+                disabled={deleting}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

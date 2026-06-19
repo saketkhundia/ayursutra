@@ -12,10 +12,10 @@ import {
   verifyAccessToken,
   AuthRequest,
 } from '../middleware/auth';
-import { collections, queryToArray } from '../models/database';
+import { collections, queryToArray, batch } from '../models/database';
 import { validateRequest } from '../middleware/validation';
 import { z } from 'zod';
-import { emitMessageSent, emitMessageRead } from '../services/realtime';
+import { emitMessageSent, emitMessageRead, getIO } from '../services/realtime';
 
 const router = Router();
 
@@ -330,6 +330,27 @@ router.get('/conversations', async (req: Request, res: Response) => {
         new Date(a.last_message_at).getTime()
     );
 
+    // Attach per-conversation unread counts (messages addressed to this user
+    // that are not yet read). Only conversations that survived hydration are
+    // considered, so ghost conversations don't contribute phantom unreads.
+    const unreadSnap = await collections
+      .messages()
+      .where('receiver_id', '==', userId)
+      .where('is_read', '==', false)
+      .get();
+
+    const unreadByConversation = new Map<string, number>();
+    queryToArray(unreadSnap).forEach((m: any) => {
+      unreadByConversation.set(
+        m.conversation_id,
+        (unreadByConversation.get(m.conversation_id) || 0) + 1
+      );
+    });
+
+    hydratedConversations.forEach((conv: any) => {
+      conv.unread_count = unreadByConversation.get(conv.id) || 0;
+    });
+
     return res.json(hydratedConversations);
   } catch (err: any) {
     console.error('[GET /messages/conversations]', err.message);
@@ -369,11 +390,108 @@ router.get('/unread-count', async (req: Request, res: Response) => {
       .where('is_read', '==', false)
       .get();
 
-    return res.json({ unread_count: unreadSnap.size });
+    const unread = queryToArray(unreadSnap);
+
+    // Exclude "ghost" unread messages whose sender (the other participant) no
+    // longer exists. Those conversations are dropped from the conversation list
+    // and can never be opened to be marked read, so counting them would leave a
+    // permanently stuck unread badge.
+    const senderIds = [...new Set(unread.map((m: any) => m.sender_id))];
+    const senderExists = new Map<string, boolean>();
+    await Promise.all(
+      senderIds.map(async (sid: string) => {
+        const doctorDoc = await collections.practitioners().doc(sid).get();
+        if (doctorDoc.exists) {
+          senderExists.set(sid, true);
+          return;
+        }
+        const patientDoc = await collections.patients().doc(sid).get();
+        senderExists.set(sid, patientDoc.exists);
+      })
+    );
+
+    const liveUnread = unread.filter((m: any) => senderExists.get(m.sender_id));
+
+    return res.json({ unread_count: liveUnread.length });
   } catch (err: any) {
     console.error('[GET /messages/unread-count]', err.message);
     return res.status(500).json({ error: 'Failed to fetch unread count' });
   }
 });
+
+/**
+ * DELETE /messages/conversation/:otherUserId
+ * Delete a conversation and all of its messages for the logged-in user.
+ * Authentication: Both doctor and patient (must be a participant)
+ */
+router.delete(
+  '/conversation/:otherUserId',
+  async (req: Request, res: Response) => {
+    try {
+      const { otherUserId } = req.params;
+
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      let userId: string | undefined;
+      try {
+        const payload = verifyAccessToken(token);
+        userId = payload.id;
+      } catch (e) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+
+      if (!userId) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      if (!otherUserId) {
+        return res.status(400).json({ error: 'otherUserId is required' });
+      }
+
+      // Conversation IDs are the two participant IDs joined in sorted order.
+      const conversationId = [userId, otherUserId].sort().join('_');
+
+      // Fetch all messages belonging to this conversation.
+      const messagesSnap = await collections
+        .messages()
+        .where('conversation_id', '==', conversationId)
+        .get();
+
+      // Delete messages in chunks (Firestore batches cap at 500 writes).
+      const docs = messagesSnap.docs;
+      for (let i = 0; i < docs.length; i += 450) {
+        const fbBatch = batch();
+        docs.slice(i, i + 450).forEach(doc => fbBatch.delete(doc.ref));
+        await fbBatch.commit();
+      }
+
+      // Delete the conversation summary document.
+      await collections.conversations().doc(conversationId).delete();
+
+      // Let the other participant know in real time so their list updates.
+      const io = getIO();
+      if (io) {
+        io.to(`user:${otherUserId}`).emit('conversation:deleted', {
+          conversation_id: conversationId,
+        });
+        io.to(`user:${userId}`).emit('conversation:deleted', {
+          conversation_id: conversationId,
+        });
+      }
+
+      return res.json({
+        message: 'Conversation deleted',
+        conversation_id: conversationId,
+        deleted_messages: docs.length,
+      });
+    } catch (err: any) {
+      console.error('[DELETE /messages/conversation]', err.message);
+      return res.status(500).json({ error: 'Failed to delete conversation' });
+    }
+  }
+);
 
 export default router;

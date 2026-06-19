@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, Calendar, Activity,
   Bell, Leaf, Search, Mail, Clock,
   CalendarCheck, CheckCircle, XCircle, AlertCircle, X,
+  MessageCircle,
 } from 'lucide-react';
 import { api, userAuth } from '../api';
 import { auth } from '../firebase';
@@ -50,6 +51,9 @@ const patientNavItems = [
 
 export default function AyurLayout() {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [messageUnreadCount, setMessageUnreadCount] = useState(0);
+  const [messageToast, setMessageToast] = useState<{ sender: string; content: string } | null>(null);
+  const [showMessageToast, setShowMessageToast] = useState(false);
   const [toastNotif, setToastNotif] = useState<{ title: string; message: string } | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [loginPopup, setLoginPopup] = useState<any[]>([]);
@@ -57,7 +61,7 @@ export default function AyurLayout() {
   const popupShownRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { on, joinDashboard, joinPatientChannel } = useSocket();
+  const { socket, connected, on, joinDashboard, joinPatientChannel } = useSocket();
 
   const role = userAuth.getRole();
   const user = userAuth.getUser();
@@ -65,6 +69,9 @@ export default function AyurLayout() {
 
   const lastNotificationIdRef = useRef<string | null>(null);
   const isFirstLoadRef = useRef<boolean>(true);
+  // Keep a live ref of the current path so socket handlers don't go stale
+  const locationRef = useRef(location.pathname);
+  locationRef.current = location.pathname;
 
   // All hooks must be called before any early return
   useEffect(() => {
@@ -75,6 +82,56 @@ export default function AyurLayout() {
       joinPatientChannel(user.id);
     }
   }, [role, user?.id]);
+
+  // Join the personal user room so message events are received app-wide
+  // (not only while the Messaging page is mounted).
+  useEffect(() => {
+    if (!user?.id || !socket) return;
+    socket.emit('join:user', user.id);
+  }, [user?.id, socket, connected]);
+
+  // Track unread MESSAGE count globally: poll + live socket updates + clear on read
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshMessageCount = () => {
+      api.getUnreadMessageCount()
+        .then(data => setMessageUnreadCount(data.unread_count || 0))
+        .catch(() => {});
+    };
+
+    refreshMessageCount();
+    const interval = setInterval(refreshMessageCount, 6000);
+
+    // New incoming message -> bump badge + show popup (only if not actively
+    // viewing the Messages page, where the message appears inline instead).
+    const unsubNew = on('message:new', (message: any) => {
+      if (!message || message.receiver_id !== user.id) return;
+      if (locationRef.current === '/messages') {
+        // On the messages page the conversation view handles read state;
+        // just re-sync the badge from the server.
+        refreshMessageCount();
+        return;
+      }
+      setMessageUnreadCount(prev => prev + 1);
+      setMessageToast({
+        sender: message.sender_name || 'New message',
+        content: message.content || '',
+      });
+      setShowMessageToast(true);
+      setTimeout(() => setShowMessageToast(false), 6000);
+    });
+
+    // A conversation was opened/read elsewhere -> re-sync badge from server.
+    const onMessagesRead = () => refreshMessageCount();
+    window.addEventListener('messages:read', onMessagesRead);
+
+    return () => {
+      clearInterval(interval);
+      unsubNew();
+      window.removeEventListener('messages:read', onMessagesRead);
+    };
+  }, [user?.id, on]);
 
   useEffect(() => {
     const refresh = () => {
@@ -219,7 +276,7 @@ export default function AyurLayout() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <AyurNavbar navItems={navItems} unreadCount={unreadCount} onLogout={handleLogout} />
+      <AyurNavbar navItems={navItems} unreadCount={unreadCount} messageUnreadCount={messageUnreadCount} onLogout={handleLogout} />
 
       <div className="flex-1 flex flex-col min-w-0 pt-[56px]">
         <header className="border-b px-6 py-3 flex items-center gap-3 sticky top-[56px] z-30" style={{ backgroundColor: 'var(--bg-header)', borderColor: 'var(--border-color)' }}>
@@ -264,6 +321,31 @@ export default function AyurLayout() {
             </div>
             <div className="px-4 py-3 text-sm text-[#5A5550] bg-[#F7F5F0]/50">{toastNotif.message}</div>
           </div>
+        </div>
+      )}
+
+      {showMessageToast && messageToast && (
+        <div
+          className="fixed right-4 z-[70] w-80"
+          style={{ top: showToast && toastNotif ? '6.75rem' : '1rem' }}
+        >
+          <button
+            type="button"
+            onClick={() => { setShowMessageToast(false); navigate('/messages'); }}
+            className="block w-full text-left bg-white rounded-xl shadow-lg border border-[#E8E3DA] overflow-hidden hover:shadow-xl transition-shadow"
+          >
+            <div className="flex items-center gap-3 px-4 py-3 bg-[#4E9A6F]">
+              <MessageCircle className="w-4 h-4 text-white" />
+              <p className="text-sm font-semibold text-white flex-1 truncate">{messageToast.sender}</p>
+              <span
+                onClick={(e) => { e.stopPropagation(); setShowMessageToast(false); }}
+                className="text-white/80 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </span>
+            </div>
+            <div className="px-4 py-3 text-sm text-[#5A5550] bg-[#F7F5F0]/50 truncate">{messageToast.content}</div>
+          </button>
         </div>
       )}
 

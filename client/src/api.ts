@@ -323,6 +323,11 @@ export const api = {
     authRequest<any[]>('/messages/conversations'),
   getUnreadMessageCount: () =>
     authRequest<{ unread_count: number }>('/messages/unread-count'),
+  deleteConversation: (otherUserId: string) =>
+    authRequest<{ message: string; conversation_id: string; deleted_messages: number }>(
+      `/messages/conversation/${otherUserId}`,
+      { method: 'DELETE' }
+    ),
 
   // Appointments - Patient booking
   bookAppointment: (data: {

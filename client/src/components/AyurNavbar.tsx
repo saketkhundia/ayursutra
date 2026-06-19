@@ -12,10 +12,11 @@ interface NavItem {
 interface NavbarProps {
   navItems: NavItem[];
   unreadCount: number;
+  messageUnreadCount?: number;
   onLogout: () => void;
 }
 
-export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarProps) {
+export default function AyurNavbar({ navItems, unreadCount, messageUnreadCount = 0, onLogout }: NavbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -69,6 +70,9 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
                   <span>{item.label}</span>
                   {item.to === '/notifications' && unreadCount > 0 && (
                     <span className="badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                  )}
+                  {item.to === '/messages' && messageUnreadCount > 0 && (
+                    <span className="badge">{messageUnreadCount > 99 ? '99+' : messageUnreadCount}</span>
                   )}
                 </NavLink>
               </li>
@@ -126,6 +130,9 @@ export default function AyurNavbar({ navItems, unreadCount, onLogout }: NavbarPr
             <span>{item.label}</span>
             {item.to === '/notifications' && unreadCount > 0 && (
               <span className="badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+            )}
+            {item.to === '/messages' && messageUnreadCount > 0 && (
+              <span className="badge">{messageUnreadCount > 99 ? '99+' : messageUnreadCount}</span>
             )}
           </NavLink>
         ))}
