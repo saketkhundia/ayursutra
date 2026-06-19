@@ -6,6 +6,8 @@ import {
   CalendarCheck, CheckCircle, XCircle, AlertCircle, X,
 } from 'lucide-react';
 import { api, userAuth } from '../api';
+import { auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 import { useSocket } from '../hooks/useSocket';
 import AyurNavbar from './AyurNavbar';
 
@@ -200,6 +202,9 @@ export default function AyurLayout() {
 
   const handleLogout = () => {
     userAuth.clear();
+    // Clear the Firebase auth session too, so a subsequent Google sign-in
+    // does not silently reuse the previous account.
+    signOut(auth).catch(() => {});
     navigate('/login', { replace: true });
   };
 

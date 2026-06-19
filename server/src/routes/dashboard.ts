@@ -95,8 +95,10 @@ router.get('/upcoming-sessions', async (req: AuthRequest, res: Response) => {
 
 router.get('/therapy-distribution', async (req: AuthRequest, res: Response) => {
   const doctorId = req.doctor!.id;
-  const allSessSnap = await collections.therapySessions().get();
-  const sessions = queryToArray(allSessSnap).filter((s: any) => s.practitioner_id === doctorId);
+  const snap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .get();
+  const sessions = queryToArray(snap);
 
   // Group by therapy_type_id
   const countMap: Record<string, number> = {};
@@ -126,9 +128,11 @@ router.get('/weekly-sessions', async (req: AuthRequest, res: Response) => {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const cutoff = thirtyDaysAgo.toISOString().split('T')[0];
 
-  const snap = await collections.therapySessions().get();
-  const allSessions = queryToArray(snap);
-  const sessions = allSessions.filter((s: any) => s.practitioner_id === doctorId && s.scheduled_date >= cutoff);
+  const snap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .where('scheduled_date', '>=', cutoff)
+    .get();
+  const sessions = queryToArray(snap);
 
   // Group by scheduled_date
   const dateMap: Record<string, { count: number; completed: number; cancelled: number }> = {};
@@ -181,9 +185,11 @@ router.get('/ai-insights', async (req: AuthRequest, res: Response) => {
   const cutoff = thirtyDaysAgo.toISOString().split('T')[0];
 
   // Completion rate
-  const allRecentSnap = await collections.therapySessions().get();
-  const allRecentSessions = queryToArray(allRecentSnap);
-  const recentSessions = allRecentSessions.filter((s: any) => s.practitioner_id === doctorId && s.scheduled_date >= cutoff);
+  const recentSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .where('scheduled_date', '>=', cutoff)
+    .get();
+  const recentSessions = queryToArray(recentSnap);
   const allCount = recentSessions.length;
   const completed = recentSessions.filter((s: any) => s.status === 'completed').length;
   const noShows = recentSessions.filter((s: any) => s.status === 'no-show').length;
@@ -234,9 +240,10 @@ router.get('/ai-insights', async (req: AuthRequest, res: Response) => {
 
   // Schedule heatmap
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const heatmapSnap = await collections.therapySessions().get();
-  const heatmapAll = queryToArray(heatmapSnap);
-  const doctorSessions = heatmapAll.filter((s: any) => s.practitioner_id === doctorId);
+  const heatmapSnap = await collections.therapySessions()
+    .where('practitioner_id', '==', doctorId)
+    .get();
+  const doctorSessions = queryToArray(heatmapSnap);
   const heatmap: Record<string, number> = {};
   for (const s of doctorSessions) {
     if (s.status === 'cancelled') continue;

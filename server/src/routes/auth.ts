@@ -375,8 +375,9 @@ router.post('/google', async (req: Request, res: Response) => {
       patient: { id, name: displayName, email: normalizedEmail, age: null, phone: '', gender: '' },
     });
   } catch (err: any) {
-    console.error('[POST /auth/google]', err.message);
-    return res.status(401).json({ error: 'Invalid Google token' });
+    console.error('[POST /auth/google] Token verification failed:', err.message);
+    if (err.code) console.error('[POST /auth/google] Error code:', err.code);
+    return res.status(401).json({ error: 'Invalid Google token', details: err.message });
   }
 });
 

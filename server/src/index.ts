@@ -60,7 +60,9 @@ app.use(httpsRedirect);
 
 // CORS configuration
 app.use(cors({
-  origin: config.ALLOWED_ORIGINS.split(','),
+  origin: config.NODE_ENV === 'production' 
+    ? config.ALLOWED_ORIGINS.split(',')
+    : (origin, callback) => callback(null, true), // Allow all in dev/staging
   credentials: true,
 }));
 

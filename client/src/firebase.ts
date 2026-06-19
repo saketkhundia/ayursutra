@@ -13,3 +13,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Always show the Google account chooser instead of silently reusing the
+// last signed-in account. Without this, after logging out the next Google
+// sign-in auto-selects the most recent account rather than letting the user
+// pick which email to sign in with.
+googleProvider.setCustomParameters({ prompt: 'select_account' });

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, Edit2, Save, X, User2, Phone, BookOpen, Clock, Award, FileText, MapPin } from 'lucide-react';
 import { api, userAuth } from '../api';
+import { auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 
 const DOCTOR_TYPES = [
   'Ayurveda',
@@ -151,6 +153,7 @@ export default function DoctorProfile() {
     try {
       await api.deleteDoctorProfile();
       userAuth.clear();
+      signOut(auth).catch(() => {});
       window.location.href = '/login';
     } catch (err: any) {
       alert(err.message || 'Failed to delete profile');

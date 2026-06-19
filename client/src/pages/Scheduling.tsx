@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Plus, Clock, User, X, Zap, RefreshCw, Stethoscope, Trash2, CheckSquare, ShieldCheck, LogIn, LogOut, Lock, Info, Sparkles } from 'lucide-react';
 import { api, doctorAuth } from '../api';
+import { auth } from '../firebase';
+import { signOut } from 'firebase/auth';
 
 function DoctorAvailabilityRow({ practitioner }: { practitioner: any }) {
   const [slots, setSlots] = useState<any[]>([]);
@@ -335,6 +337,7 @@ export default function Scheduling() {
 
   const handleDoctorLogout = () => {
     doctorAuth.clear();
+    signOut(auth).catch(() => {});
     setLoggedInDoctor(null);
   };
 
