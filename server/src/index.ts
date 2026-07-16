@@ -24,6 +24,7 @@ import { errorHandler } from './middleware/errorHandler';
 
 import { initializeDatabase } from './models/database';
 import { initializeRealtime } from './services/realtime';
+import { initializeKeepAlive, stopKeepAlive } from './services/keep-alive';
 
 installAsyncErrorHandling();
 
@@ -180,6 +181,9 @@ if (!process.env.VERCEL) {
     if (config.NODE_ENV === 'development') {
       logger.info(`ℹ Rate limiting: ${config.RATE_LIMIT_MAX_REQUESTS} requests per ${config.RATE_LIMIT_WINDOW} minutes`);
     }
+
+    // Initialize keep-alive service to prevent Render from spinning down
+    initializeKeepAlive();
   });
 }
 
@@ -187,6 +191,7 @@ if (!process.env.VERCEL) {
 if (!process.env.VERCEL) {
   process.on('SIGTERM', () => {
     logger.warn('SIGTERM received, shutting down gracefully...');
+    stopKeepAlive();
     httpServer.close(() => {
       logger.info('Server shut down');
       process.exit(0);
@@ -195,6 +200,7 @@ if (!process.env.VERCEL) {
 
   process.on('SIGINT', () => {
     logger.warn('SIGINT received, shutting down gracefully...');
+    stopKeepAlive();
     httpServer.close(() => {
       logger.info('Server shut down');
       process.exit(0);
