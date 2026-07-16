@@ -6,6 +6,10 @@ export interface AuthRequest extends Request {
   doctor?: { id: string; name: string; email: string; verified: boolean; role?: string };
   patient?: { id: string; name: string; email: string; role: string };
   user?: { id: string; role: 'doctor' | 'patient' };
+  params: any;
+  query: any;
+  body: any;
+  headers: any;
 }
 
 interface TokenPayload {
