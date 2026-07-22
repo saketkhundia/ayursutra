@@ -1,0 +1,61 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "therapy_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "practitioner_id", "order": "ASCENDING" },
+        { "fieldPath": "scheduled_date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "therapy_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "practitioner_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "therapy_sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "practitioner_id", "order": "ASCENDING" },
+        { "fieldPath": "patient_id", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "doctor_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "treatment_plans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "practitioner_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "practitioner_availability",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "practitioner_id", "order": "ASCENDING" },
+        { "fieldPath": "day_of_week", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "appointments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "doctor_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
